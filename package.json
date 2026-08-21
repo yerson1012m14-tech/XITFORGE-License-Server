@@ -1,0 +1,16 @@
+{
+  "name": "xitforge-license-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public license API and private admin panel for XITFORGE",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "express": "5.2.1"
+  }
+}

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XITFORGE License Manager</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <section id="loginView" class="card">
+      <div class="brand">XITFORGE</div>
+      <p class="muted">License Manager</p>
+      <form id="loginForm">
+        <label>Contraseña de administrador</label>
+        <input id="adminPassword" type="password" autocomplete="current-password" required>
+        <button type="submit">Entrar</button>
+        <p id="loginError" class="error"></p>
+      </form>
+    </section>
+
+    <section id="adminView" class="hidden">
+      <header class="topbar">
+        <div>
+          <div class="brand">XITFORGE</div>
+          <div class="muted">License Manager</div>
+        </div>
+        <button id="logoutButton" class="secondary">Salir</button>
+      </header>
+
+      <div class="grid">
+        <section class="card">
+          <h2>Crear key</h2>
+          <form id="createForm">
+            <label>Duración</label>
+            <select id="durationDays">
+              <option value="1">1 día</option>
+              <option value="7" selected>7 días</option>
+              <option value="30">30 días</option>
+              <option value="365">1 año</option>
+              <option value="0">Permanente</option>
+            </select>
+
+            <label>Dispositivos</label>
+            <input id="deviceLimit" type="number" min="1" max="100" value="1">
+
+            <button type="submit">Crear key</button>
+          </form>
+
+          <div id="createdKey" class="created hidden">
+            <div class="muted">Nueva key</div>
+            <code id="createdKeyValue"></code>
+            <button id="copyKeyButton" class="secondary">Copiar</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="sectionTitle">
+            <h2>Licencias</h2>
+            <button id="refreshButton" class="secondary">Actualizar</button>
+          </div>
+          <div id="tableWrap"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
