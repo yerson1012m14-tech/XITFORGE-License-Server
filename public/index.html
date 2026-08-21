@@ -3,68 +3,475 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>XITFORGE License Manager</title>
+
+  <title>XITFORGE Manager</title>
+
   <link rel="stylesheet" href="/style.css">
 </head>
+
 <body>
+
   <main class="shell">
-    <section id="loginView" class="card">
+
+    <!-- =====================================================
+         LOGIN
+         ===================================================== -->
+
+    <section id="loginView" class="card loginCard">
+
       <div class="brand">XITFORGE</div>
-      <p class="muted">License Manager</p>
+
+      <p class="muted">
+        License Manager
+      </p>
+
       <form id="loginForm">
-        <label>Contraseña de administrador</label>
-        <input id="adminPassword" type="password" autocomplete="current-password" required>
-        <button type="submit">Entrar</button>
+
+        <label for="adminPassword">
+          Contraseña de administrador
+        </label>
+
+        <input
+          id="adminPassword"
+          type="password"
+          autocomplete="current-password"
+          required
+        >
+
+        <button type="submit">
+          Entrar
+        </button>
+
         <p id="loginError" class="error"></p>
+
       </form>
+
     </section>
+
+
+    <!-- =====================================================
+         ADMIN
+         ===================================================== -->
 
     <section id="adminView" class="hidden">
+
+      <!-- TOPBAR -->
+
       <header class="topbar">
+
         <div>
-          <div class="brand">XITFORGE</div>
-          <div class="muted">License Manager</div>
+
+          <div class="brand">
+            XITFORGE
+          </div>
+
+          <div class="muted">
+            License Manager
+          </div>
+
         </div>
-        <button id="logoutButton" class="secondary">Salir</button>
+
+        <button
+          id="logoutButton"
+          class="secondary topbarButton"
+          type="button"
+        >
+          Salir
+        </button>
+
       </header>
 
-      <div class="grid">
-        <section class="card">
-          <h2>Crear key</h2>
-          <form id="createForm">
-            <label>Duración</label>
-            <select id="durationDays">
-              <option value="1">1 día</option>
-              <option value="7" selected>7 días</option>
-              <option value="30">30 días</option>
-              <option value="365">1 año</option>
-              <option value="0">Permanente</option>
+
+      <!-- ===================================================
+           NAVEGACIÓN DEL PANEL
+           =================================================== -->
+
+      <nav class="panelTabs">
+
+        <button
+          id="licensesTab"
+          class="tabButton active"
+          type="button"
+        >
+          Licencias
+        </button>
+
+        <button
+          id="optionsTab"
+          class="tabButton"
+          type="button"
+        >
+          Opciones
+        </button>
+
+      </nav>
+
+
+      <!-- ===================================================
+           VISTA LICENCIAS
+           =================================================== -->
+
+      <section
+        id="licensesView"
+        class="panelView"
+      >
+
+        <div class="grid">
+
+          <!-- CREAR KEY -->
+
+          <section class="card">
+
+            <h2>
+              Crear key
+            </h2>
+
+            <form id="createForm">
+
+              <label for="durationDays">
+                Duración
+              </label>
+
+              <select id="durationDays">
+
+                <option value="1">
+                  1 día
+                </option>
+
+                <option value="7" selected>
+                  7 días
+                </option>
+
+                <option value="30">
+                  30 días
+                </option>
+
+                <option value="365">
+                  1 año
+                </option>
+
+                <option value="0">
+                  Permanente
+                </option>
+
+              </select>
+
+
+              <label for="deviceLimit">
+                Dispositivos
+              </label>
+
+              <input
+                id="deviceLimit"
+                type="number"
+                min="1"
+                max="100"
+                value="1"
+              >
+
+
+              <button type="submit">
+                Crear key
+              </button>
+
+            </form>
+
+
+            <div
+              id="createdKey"
+              class="created hidden"
+            >
+
+              <div class="muted">
+                Nueva key
+              </div>
+
+              <code id="createdKeyValue"></code>
+
+              <button
+                id="copyKeyButton"
+                class="secondary"
+                type="button"
+              >
+                Copiar
+              </button>
+
+            </div>
+
+          </section>
+
+
+          <!-- LISTA DE LICENCIAS -->
+
+          <section class="card">
+
+            <div class="sectionTitle">
+
+              <h2>
+                Licencias
+              </h2>
+
+              <button
+                id="refreshButton"
+                class="secondary"
+                type="button"
+              >
+                Actualizar
+              </button>
+
+            </div>
+
+            <div id="tableWrap"></div>
+
+          </section>
+
+        </div>
+
+      </section>
+
+
+      <!-- ===================================================
+           VISTA OPCIONES
+           =================================================== -->
+
+      <section
+        id="optionsView"
+        class="panelView hidden"
+      >
+
+        <div class="optionsHeader">
+
+          <div>
+
+            <h2>
+              Opciones de la app
+            </h2>
+
+            <p class="muted">
+              Configura las opciones que aparecerán en la IPA.
+            </p>
+
+          </div>
+
+          <button
+            id="newOptionButton"
+            type="button"
+          >
+            + Nueva opción
+          </button>
+
+        </div>
+
+
+        <!-- FILTRO DE JUEGO -->
+
+        <section class="card filterCard">
+
+          <label for="optionsGameFilter">
+            Mostrar opciones de
+          </label>
+
+          <select id="optionsGameFilter">
+
+            <option value="all">
+              Todos
+            </option>
+
+            <option value="freefire_normal">
+              Free Fire Normal
+            </option>
+
+            <option value="freefire_max">
+              Free Fire MAX
+            </option>
+
+          </select>
+
+        </section>
+
+
+        <!-- FORMULARIO DE OPCIÓN -->
+
+        <section
+          id="optionFormCard"
+          class="card hidden"
+        >
+
+          <div class="sectionTitle">
+
+            <div>
+
+              <h2 id="optionFormTitle">
+                Nueva opción
+              </h2>
+
+              <p class="muted">
+                La configuración técnica queda oculta para el usuario final.
+              </p>
+
+            </div>
+
+            <button
+              id="cancelOptionButton"
+              class="secondary"
+              type="button"
+            >
+              Cancelar
+            </button>
+
+          </div>
+
+
+          <form id="optionForm">
+
+            <input
+              id="optionId"
+              type="hidden"
+            >
+
+
+            <label for="optionName">
+              Nombre
+            </label>
+
+            <input
+              id="optionName"
+              type="text"
+              maxlength="120"
+              placeholder="Ej. Anti Lag"
+              required
+            >
+
+
+            <label for="optionDescription">
+              Descripción
+            </label>
+
+            <textarea
+              id="optionDescription"
+              maxlength="500"
+              placeholder="Pequeña descripción de la opción"
+              rows="4"
+            ></textarea>
+
+
+            <label for="optionGame">
+              Juego
+            </label>
+
+            <select
+              id="optionGame"
+              required
+            >
+
+              <option value="freefire_normal">
+                Free Fire Normal
+              </option>
+
+              <option value="freefire_max">
+                Free Fire MAX
+              </option>
+
             </select>
 
-            <label>Dispositivos</label>
-            <input id="deviceLimit" type="number" min="1" max="100" value="1">
 
-            <button type="submit">Crear key</button>
+            <label for="optionRoute">
+              Ruta
+            </label>
+
+            <input
+              id="optionRoute"
+              type="text"
+              maxlength="2048"
+              placeholder="Ej. Library/Preferences/"
+              required
+            >
+
+            <p class="fieldHelp">
+              Escribe la ruta relativa dentro del contenedor del juego.
+            </p>
+
+
+            <label for="optionFile">
+              Archivo
+            </label>
+
+            <input
+              id="optionFile"
+              type="file"
+            >
+
+            <p class="fieldHelp">
+              Puedes subir el archivo que esa opción utilizará.
+              Máximo 32 MB.
+            </p>
+
+
+            <label for="optionSortOrder">
+              Orden
+            </label>
+
+            <input
+              id="optionSortOrder"
+              type="number"
+              value="0"
+              min="-100000"
+              max="100000"
+            >
+
+
+            <div class="formActions">
+
+              <button
+                type="submit"
+              >
+                Guardar opción
+              </button>
+
+            </div>
+
+            <p
+              id="optionFormError"
+              class="error"
+            ></p>
+
           </form>
 
-          <div id="createdKey" class="created hidden">
-            <div class="muted">Nueva key</div>
-            <code id="createdKeyValue"></code>
-            <button id="copyKeyButton" class="secondary">Copiar</button>
-          </div>
         </section>
+
+
+        <!-- LISTA DE OPCIONES -->
 
         <section class="card">
+
           <div class="sectionTitle">
-            <h2>Licencias</h2>
-            <button id="refreshButton" class="secondary">Actualizar</button>
+
+            <h2>
+              Opciones configuradas
+            </h2>
+
+            <button
+              id="refreshOptionsButton"
+              class="secondary"
+              type="button"
+            >
+              Actualizar
+            </button>
+
           </div>
-          <div id="tableWrap"></div>
+
+          <div id="optionsWrap"></div>
+
         </section>
-      </div>
+
+      </section>
+
     </section>
+
   </main>
 
+
   <script src="/app.js"></script>
+
 </body>
 </html>

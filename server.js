@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
 const { Pool } = require('pg');
+const { registerOptionsRoutes } = require('./options-routes');
 
 const app = express();
 
@@ -71,6 +72,10 @@ async function initializeDatabase() {
 
   try {
 
+    /*
+     * LICENCIAS
+     */
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS licenses (
         id BIGSERIAL PRIMARY KEY,
@@ -85,6 +90,10 @@ async function initializeDatabase() {
       );
     `);
 
+    /*
+     * ACTIVACIONES
+     */
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS activations (
         id BIGSERIAL PRIMARY KEY,
@@ -98,6 +107,10 @@ async function initializeDatabase() {
       );
     `);
 
+    /*
+     * INDICES DE LICENCIAS
+     */
+
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_licenses_key_hash
       ON licenses(key_hash);
@@ -108,7 +121,7 @@ async function initializeDatabase() {
       ON activations(license_id);
     `);
 
-    console.log('PostgreSQL database initialized.');
+    console.log('PostgreSQL license database initialized.');
 
   } finally {
 
@@ -1364,6 +1377,56 @@ app.get(
 
 /*
  * ---------------------------------------------------------
+ * DYNAMIC APP OPTIONS
+ * ---------------------------------------------------------
+ *
+ * Esto conecta tu panel con options-routes.js.
+ *
+ * El módulo crea:
+ *
+ *   app_options
+ *
+ * y las rutas:
+ *
+ *   /api/admin/options
+ *   /api/admin/options/:id
+ *   /api/admin/options/:id/status
+ *   /api/admin/options/:id/file
+ *
+ *   /api/app/options
+ *   /api/app/options/:id/file
+ *
+ * Las rutas administrativas requieren el mismo
+ * Bearer token del panel de licencias.
+ * ---------------------------------------------------------
+ */
+
+let optionsDatabaseReady = null;
+
+try {
+
+  const optionsModule =
+    registerOptionsRoutes({
+      app,
+      pool,
+      requireAdmin
+    });
+
+  optionsDatabaseReady =
+    optionsModule.ensureTable();
+
+} catch (error) {
+
+  console.error(
+    'Failed to register app options routes:',
+    error
+  );
+
+  process.exit(1);
+}
+
+/*
+ * ---------------------------------------------------------
  * STATIC PANEL
  * ---------------------------------------------------------
  */
@@ -1389,12 +1452,23 @@ async function startServer() {
 
     await initializeDatabase();
 
+    /*
+     * Esperar también a que la tabla
+     * de opciones esté creada.
+     */
+
+    await optionsDatabaseReady;
+
     app.listen(
       PORT,
       () => {
 
         console.log(
           `XITFORGE License Server running on ${PUBLIC_BASE_URL}`
+        );
+
+        console.log(
+          'XITFORGE App Options API ready.'
         );
 
       }
