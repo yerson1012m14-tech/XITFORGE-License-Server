@@ -30,7 +30,7 @@ function normalizeGame(value) {
 function normalizeCategory(value) {
   const category = normalizeText(value, 32).toLowerCase();
 
-  if (category === 'holograma' || category === 'aimbot') {
+  if (category === 'holograma' || category === 'aimbot' || category === 'fps') {
     return category;
   }
 

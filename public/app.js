@@ -2555,7 +2555,7 @@ function renderOptions() {
                     Categoría:
                   </strong>
 
-                  ${option.category === 'aimbot' ? 'Aimbots' : 'Hologramas'}
+                  ${option.category === 'aimbot' ? 'Aimbots' : (option.category === 'fps' ? 'FPS' : 'Hologramas')}
                 </span>
 
                 <span>
