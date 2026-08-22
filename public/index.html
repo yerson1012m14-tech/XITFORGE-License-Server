@@ -116,7 +116,7 @@
 
 
       <!-- ===================================================
-           VISTA LICENCIAS
+           VISTA LICENCIAS V2
            =================================================== -->
 
       <section
@@ -124,46 +124,113 @@
         class="panelView"
       >
 
-        <div class="grid">
+        <section class="statsGrid">
 
-          <!-- CREAR KEY -->
+          <div class="statCard">
+            <span>Total</span>
+            <strong id="statTotal">0</strong>
+          </div>
 
-          <section class="card">
+          <div class="statCard">
+            <span>Activas</span>
+            <strong id="statActive">0</strong>
+          </div>
+
+          <div class="statCard">
+            <span>Expiradas</span>
+            <strong id="statExpired">0</strong>
+          </div>
+
+          <div class="statCard">
+            <span>Revocadas</span>
+            <strong id="statRevoked">0</strong>
+          </div>
+
+          <div class="statCard">
+            <span>Dispositivos</span>
+            <strong id="statDevices">0</strong>
+          </div>
+
+        </section>
+
+        <div class="licenseLayout">
+
+          <section class="card createLicenseCard">
+
+            <div class="cardEyebrow">
+              GENERADOR
+            </div>
 
             <h2>
-              Crear key
+              Nueva licencia
             </h2>
+
+            <p class="muted compactText">
+              Elige una duración rápida o escribe los días que quieras.
+            </p>
 
             <form id="createForm">
 
-              <label for="durationDays">
+              <label>
                 Duración
               </label>
 
-              <select id="durationDays">
+              <div
+                id="durationPresetWrap"
+                class="durationChoices"
+              >
 
-                <option value="1">
+                <button
+                  class="durationPreset"
+                  data-days="1"
+                  type="button"
+                >
                   1 día
-                </option>
+                </button>
 
-                <option value="7" selected>
+                <button
+                  class="durationPreset active"
+                  data-days="7"
+                  type="button"
+                >
                   7 días
-                </option>
+                </button>
 
-                <option value="30">
+                <button
+                  class="durationPreset"
+                  data-days="30"
+                  type="button"
+                >
                   30 días
-                </option>
+                </button>
 
-                <option value="365">
-                  1 año
-                </option>
+                <button
+                  class="durationPreset"
+                  data-days="custom"
+                  type="button"
+                >
+                  Personalizar
+                </button>
 
-                <option value="0">
-                  Permanente
-                </option>
+              </div>
 
-              </select>
+              <div
+                id="customDurationWrap"
+                class="hidden"
+              >
+                <label for="customDurationDays">
+                  Cantidad de días
+                </label>
 
+                <input
+                  id="customDurationDays"
+                  type="number"
+                  min="1"
+                  max="36500"
+                  step="1"
+                  placeholder="Ej. 45"
+                >
+              </div>
 
               <label for="deviceLimit">
                 Dispositivos
@@ -174,50 +241,89 @@
                 type="number"
                 min="1"
                 max="100"
+                step="1"
                 value="1"
+                required
               >
 
+              <label for="licenseNote">
+                Cliente / nota
+              </label>
 
-              <button type="submit">
-                Crear key
+              <input
+                id="licenseNote"
+                type="text"
+                maxlength="120"
+                placeholder="Ej. Juan - WhatsApp"
+              >
+
+              <p
+                id="createSummary"
+                class="createSummary"
+              >
+                7 días · 1 dispositivo
+              </p>
+
+              <button
+                class="primaryAction"
+                type="submit"
+              >
+                GENERAR KEY
               </button>
 
-            </form>
+              <p
+                id="createError"
+                class="error"
+              ></p>
 
+            </form>
 
             <div
               id="createdKey"
               class="created hidden"
             >
 
-              <div class="muted">
-                Nueva key
+              <div class="createdHeader">
+                <span>KEY GENERADA</span>
+                <span class="successDot"></span>
               </div>
 
               <code id="createdKeyValue"></code>
+
+              <div
+                id="createdKeyMeta"
+                class="createdMeta"
+              ></div>
+
+              <p class="keySaveWarning">
+                ⚠ Guarda esta key ahora. Después solo se mostrará parcialmente.
+              </p>
 
               <button
                 id="copyKeyButton"
                 class="secondary"
                 type="button"
               >
-                Copiar
+                Copiar key
               </button>
 
             </div>
 
           </section>
 
+          <section class="card licensesCard">
 
-          <!-- LISTA DE LICENCIAS -->
+            <div class="sectionTitle licenseTitle">
 
-          <section class="card">
+              <div>
+                <div class="cardEyebrow">
+                  ADMINISTRACIÓN
+                </div>
 
-            <div class="sectionTitle">
-
-              <h2>
-                Licencias
-              </h2>
+                <h2>
+                  Licencias
+                </h2>
+              </div>
 
               <button
                 id="refreshButton"
@@ -229,6 +335,39 @@
 
             </div>
 
+            <div class="licenseToolbar">
+
+              <div class="searchField">
+                <span>⌕</span>
+
+                <input
+                  id="licenseSearch"
+                  type="search"
+                  placeholder="Buscar key o cliente..."
+                  autocomplete="off"
+                >
+              </div>
+
+              <select id="licenseStatusFilter">
+                <option value="all">
+                  Todos los estados
+                </option>
+
+                <option value="active">
+                  Activas
+                </option>
+
+                <option value="expired">
+                  Expiradas
+                </option>
+
+                <option value="revoked">
+                  Revocadas
+                </option>
+              </select>
+
+            </div>
+
             <div id="tableWrap"></div>
 
           </section>
@@ -236,6 +375,53 @@
         </div>
 
       </section>
+
+      <dialog
+        id="licenseModal"
+        class="licenseModal"
+      >
+
+        <div class="modalTop">
+
+          <div>
+            <div
+              id="licenseModalEyebrow"
+              class="cardEyebrow"
+            >
+              XITFORGE
+            </div>
+
+            <h3 id="licenseModalTitle">
+              Licencia
+            </h3>
+          </div>
+
+          <button
+            id="licenseModalClose"
+            class="iconButton"
+            type="button"
+            aria-label="Cerrar"
+          >
+            ×
+          </button>
+
+        </div>
+
+        <div id="licenseModalBody"></div>
+
+        <div
+          id="licenseModalActions"
+          class="modalActions"
+        ></div>
+
+      </dialog>
+
+      <div
+        id="toast"
+        class="toast hidden"
+        role="status"
+        aria-live="polite"
+      ></div>
 
 
       <!-- ===================================================
@@ -294,6 +480,80 @@
             </option>
 
           </select>
+
+        </section>
+
+
+        <!-- ARCHIVOS ORIGINALES PARA DESACTIVAR -->
+
+        <section class="card originalFilesCard">
+
+          <div class="sectionTitle">
+            <div>
+              <h2>Archivos originales para DESACTIVAR</h2>
+              <p class="muted">
+                Sube aquí los archivos limpios. Cuando el cliente pulse DESACTIVAR,
+                la IPA restaurará todos los originales del juego seleccionado.
+              </p>
+            </div>
+
+            <button id="newOriginalButton" type="button">
+              + Agregar originales
+            </button>
+          </div>
+
+          <div id="originalFormWrap" class="originalFormWrap hidden">
+            <form id="originalForm">
+              <div class="originalFormGrid">
+                <div>
+                  <label for="originalGame">Juego</label>
+                  <select id="originalGame" required>
+                    <option value="freefire_normal">Free Fire Normal</option>
+                    <option value="freefire_max">Free Fire MAX</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label for="originalRoute">Ruta</label>
+                  <input
+                    id="originalRoute"
+                    type="text"
+                    maxlength="2048"
+                    placeholder="Ej. documents/contentcache/..."
+                    required
+                  >
+                </div>
+              </div>
+
+              <label for="originalFiles">Archivos originales</label>
+              <input
+                id="originalFiles"
+                type="file"
+                multiple
+                required
+              >
+
+              <p class="fieldHelp">
+                Puedes seleccionar varios a la vez. El nombre de cada archivo será
+                el nombre exacto que DESACTIVAR restaurará. Máximo 32 MB por archivo.
+              </p>
+
+              <div class="formActions originalFormActions">
+                <button type="submit">Subir originales</button>
+                <button
+                  id="cancelOriginalButton"
+                  class="secondary"
+                  type="button"
+                >
+                  Cancelar
+                </button>
+              </div>
+
+              <p id="originalFormError" class="error"></p>
+            </form>
+          </div>
+
+          <div id="originalFilesWrap"></div>
 
         </section>
 
@@ -401,7 +661,7 @@
 
 
             <label for="optionFile">
-              Archivo
+              Archivo para ACTIVAR
             </label>
 
             <input
@@ -410,12 +670,11 @@
             >
 
             <p class="fieldHelp">
-              Puedes subir el archivo que esa opción utilizará.
+              Este es el archivo modificado que utilizará ACTIVAR.
               Máximo 32 MB.
             </p>
 
-
-            <label for="optionSortOrder">
+<label for="optionSortOrder">
               Orden
             </label>
 

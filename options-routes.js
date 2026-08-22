@@ -83,6 +83,15 @@ function registerOptionsRoutes({
 
         file_data BYTEA,
 
+        original_file_name TEXT,
+
+        original_mime_type TEXT,
+
+        original_file_size BIGINT NOT NULL
+          DEFAULT 0,
+
+        original_file_data BYTEA,
+
         enabled BOOLEAN NOT NULL
           DEFAULT TRUE,
 
@@ -103,6 +112,24 @@ function registerOptionsRoutes({
       );
     `);
 
+    /*
+     * Migración segura para servidores que ya tenían app_options.
+     * ADD COLUMN IF NOT EXISTS conserva todas las opciones existentes.
+     */
+    await pool.query(`
+      ALTER TABLE app_options
+        ADD COLUMN IF NOT EXISTS original_file_name TEXT;
+
+      ALTER TABLE app_options
+        ADD COLUMN IF NOT EXISTS original_mime_type TEXT;
+
+      ALTER TABLE app_options
+        ADD COLUMN IF NOT EXISTS original_file_size BIGINT NOT NULL DEFAULT 0;
+
+      ALTER TABLE app_options
+        ADD COLUMN IF NOT EXISTS original_file_data BYTEA;
+    `);
+
     await pool.query(`
       CREATE INDEX IF NOT EXISTS
         idx_app_options_game_enabled
@@ -114,8 +141,73 @@ function registerOptionsRoutes({
       );
     `);
 
+    /*
+     * Archivos originales independientes de las opciones.
+     * DESACTIVAR usa esta tabla, no el formulario de cada opción.
+     */
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS app_original_files (
+        id BIGSERIAL PRIMARY KEY,
+        game TEXT NOT NULL,
+        route TEXT NOT NULL,
+        target_file_name TEXT NOT NULL,
+        source_file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+        file_size BIGINT NOT NULL DEFAULT 0,
+        file_data BYTEA NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        CONSTRAINT app_original_files_game_check
+          CHECK (game IN ('freefire_normal', 'freefire_max')),
+        CONSTRAINT app_original_files_unique_target
+          UNIQUE (game, route, target_file_name)
+      );
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_app_original_files_game
+      ON app_original_files(game, sort_order, id);
+    `);
+
+    /*
+     * Migra una sola vez los originales antiguos que estaban pegados
+     * a app_options. No borra nada de app_options.
+     */
+    await pool.query(`
+      INSERT INTO app_original_files (
+        game, route, target_file_name, source_file_name,
+        mime_type, file_size, file_data, sort_order, created_at, updated_at
+      )
+      SELECT
+        game, route, file_name,
+        COALESCE(original_file_name, file_name),
+        COALESCE(original_mime_type, 'application/octet-stream'),
+        COALESCE(original_file_size, 0),
+        original_file_data, sort_order, created_at, updated_at
+      FROM app_options
+      WHERE original_file_data IS NOT NULL
+        AND file_name IS NOT NULL
+      ON CONFLICT (game, route, target_file_name) DO NOTHING;
+    `);
+
+    /*
+     * Después de migrarlos, se limpian las columnas antiguas para que
+     * un original eliminado desde el nuevo apartado no reaparezca al
+     * reiniciar el servidor.
+     */
+    await pool.query(`
+      UPDATE app_options
+      SET
+        original_file_name = NULL,
+        original_mime_type = NULL,
+        original_file_size = 0,
+        original_file_data = NULL
+      WHERE original_file_data IS NOT NULL;
+    `);
+
     console.log(
-      'PostgreSQL app options table initialized.'
+      'PostgreSQL app options/originals tables initialized.'
     );
   }
 
@@ -147,9 +239,7 @@ function registerOptionsRoutes({
               sort_order,
               created_at,
               updated_at,
-              (
-                file_data IS NOT NULL
-              ) AS has_file
+              (file_data IS NOT NULL) AS has_file
             FROM app_options
             ORDER BY
               sort_order ASC,
@@ -158,59 +248,22 @@ function registerOptionsRoutes({
 
         res.json({
           ok: true,
-
-          options:
-            result.rows.map(row => ({
-              id:
-                Number(row.id),
-
-              name:
-                row.name,
-
-              description:
-                row.description,
-
-              game:
-                row.game,
-
-              bundleId:
-                GAME_MAP[row.game],
-
-              route:
-                row.route,
-
-              fileName:
-                row.file_name,
-
-              mimeType:
-                row.mime_type,
-
-              fileSize:
-                Number(
-                  row.file_size || 0
-                ),
-
-              hasFile:
-                Boolean(
-                  row.has_file
-                ),
-
-              enabled:
-                Boolean(
-                  row.enabled
-                ),
-
-              sortOrder:
-                Number(
-                  row.sort_order || 0
-                ),
-
-              createdAt:
-                row.created_at,
-
-              updatedAt:
-                row.updated_at
-            }))
+          options: result.rows.map(row => ({
+            id: Number(row.id),
+            name: row.name,
+            description: row.description,
+            game: row.game,
+            bundleId: GAME_MAP[row.game],
+            route: row.route,
+            fileName: row.file_name,
+            mimeType: row.mime_type,
+            fileSize: Number(row.file_size || 0),
+            hasFile: Boolean(row.has_file),
+            enabled: Boolean(row.enabled),
+            sortOrder: Number(row.sort_order || 0),
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+          }))
         });
 
       } catch (error) {
@@ -220,13 +273,10 @@ function registerOptionsRoutes({
           error
         );
 
-        res
-          .status(500)
-          .json({
-            ok: false,
-            error:
-              'Database error'
-          });
+        res.status(500).json({
+          ok: false,
+          error: 'Database error'
+        });
       }
     }
   );
@@ -409,6 +459,15 @@ function registerOptionsRoutes({
                 null,
 
               fileSize:
+                0,
+
+              hasOriginalFile:
+                false,
+
+              originalFileName:
+                null,
+
+              originalFileSize:
                 0
             }
           });
@@ -937,114 +996,156 @@ function registerOptionsRoutes({
 
   /*
    * =========================================================
-   * PUBLIC - OPTIONS FOR IPA
+   * ADMIN - UPLOAD ORIGINAL FILE
+   *
+   * Este es el archivo limpio/original que DESACTIVAR
+   * volverá a colocar en la misma ruta y filename objetivo.
    * =========================================================
    */
 
-  app.get(
-    '/api/app/options',
+  app.post(
+    '/api/admin/options/:id/original-file',
+    requireAdmin,
+
+    express.raw({
+      type:
+        'application/octet-stream',
+
+      limit:
+        '32mb'
+    }),
+
     async (req, res) => {
 
       try {
 
-        const game =
-          normalizeGame(
-            req.query.game
+        const id =
+          Number(
+            req.params.id
           );
 
-        if (!game) {
+        const buffer =
+          Buffer.isBuffer(
+            req.body
+          )
+            ? req.body
+            : Buffer.alloc(0);
+
+        if (
+          !Number.isInteger(id) ||
+          id <= 0
+        ) {
 
           return res
             .status(400)
             .json({
               ok: false,
               error:
-                'game is required'
+                'Invalid option id'
             });
         }
+
+        if (buffer.length === 0) {
+
+          return res
+            .status(400)
+            .json({
+              ok: false,
+              error:
+                'Original file is empty'
+            });
+        }
+
+        const fileName =
+          normalizeText(
+            req.get(
+              'x-file-name'
+            ) ||
+            'original.bin',
+            255
+          );
+
+        const mimeType =
+          normalizeText(
+            req.get(
+              'x-file-mime'
+            ) ||
+            'application/octet-stream',
+            120
+          );
+
+        const now =
+          new Date().toISOString();
 
         const result =
           await pool.query(
             `
-              SELECT
+              UPDATE app_options
+              SET
+                original_file_name = $1,
+                original_mime_type = $2,
+                original_file_size = $3,
+                original_file_data = $4,
+                updated_at = $5
+              WHERE id = $6
+              RETURNING
                 id,
-                name,
-                description,
-                game,
-                route,
-                file_name,
-                file_size,
+                original_file_name,
+                original_mime_type,
+                original_file_size,
                 updated_at
-              FROM app_options
-              WHERE game = $1
-                AND enabled = TRUE
-              ORDER BY
-                sort_order ASC,
-                id ASC
             `,
-            [game]
+            [
+              fileName,
+              mimeType,
+              buffer.length,
+              buffer,
+              now,
+              id
+            ]
           );
+
+        if (result.rowCount !== 1) {
+
+          return res
+            .status(404)
+            .json({
+              ok: false,
+              error:
+                'Option not found'
+            });
+        }
 
         res.json({
           ok: true,
-
-          game,
-
-          bundleId:
-            GAME_MAP[game],
-
-          options:
-            result.rows.map(
-              row => ({
-                id:
-                  Number(
-                    row.id
-                  ),
-
-                name:
-                  row.name,
-
-                description:
-                  row.description,
-
-                game:
-                  row.game,
-
-                bundleId:
-                  GAME_MAP[
-                    row.game
-                  ],
-
-                route:
-                  row.route,
-
-                fileName:
-                  row.file_name,
-
-                fileSize:
-                  Number(
-                    row.file_size ||
-                    0
-                  ),
-
-                updatedAt:
-                  row.updated_at,
-
-                fileUrl:
-                  `${
-                    process.env.PUBLIC_BASE_URL ||
-                    ''
-                  }/api/app/options/${
-                    row.id
-                  }/file`
-              })
-            )
+          id,
+          originalFileName:
+            result.rows[0]
+              .original_file_name,
+          originalMimeType:
+            result.rows[0]
+              .original_mime_type,
+          originalFileSize:
+            Number(
+              result.rows[0]
+                .original_file_size
+            ),
+          updatedAt:
+            result.rows[0]
+              .updated_at,
+          sha256:
+            crypto
+              .createHash(
+                'sha256'
+              )
+              .update(buffer)
+              .digest('hex')
         });
 
       } catch (error) {
 
         console.error(
-          'Public app options error:',
+          'Upload original option file error:',
           error
         );
 
@@ -1055,6 +1156,316 @@ function registerOptionsRoutes({
             error:
               'Database error'
           });
+      }
+    }
+  );
+
+  /*
+   * =========================================================
+   * ADMIN - ORIGINAL FILES (SEPARATE MANAGER)
+   * =========================================================
+   */
+
+  app.get(
+    '/api/admin/original-files',
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const result = await pool.query(`
+          SELECT
+            id, game, route, target_file_name, source_file_name,
+            mime_type, file_size, sort_order, created_at, updated_at
+          FROM app_original_files
+          ORDER BY game ASC, sort_order ASC, id ASC
+        `);
+
+        res.json({
+          ok: true,
+          originals: result.rows.map(row => ({
+            id: Number(row.id),
+            game: row.game,
+            bundleId: GAME_MAP[row.game],
+            route: row.route,
+            fileName: row.target_file_name,
+            sourceFileName: row.source_file_name,
+            mimeType: row.mime_type,
+            fileSize: Number(row.file_size || 0),
+            sortOrder: Number(row.sort_order || 0),
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+          }))
+        });
+      } catch (error) {
+        console.error('List original files error:', error);
+        res.status(500).json({ ok: false, error: 'Database error' });
+      }
+    }
+  );
+
+  app.post(
+    '/api/admin/original-files',
+    requireAdmin,
+    express.raw({
+      type: 'application/octet-stream',
+      limit: '32mb'
+    }),
+    async (req, res) => {
+      try {
+        const buffer = Buffer.isBuffer(req.body)
+          ? req.body
+          : Buffer.alloc(0);
+
+        if (buffer.length === 0) {
+          return res.status(400).json({
+            ok: false,
+            error: 'El archivo original está vacío'
+          });
+        }
+
+        const game = normalizeGame(req.get('x-game'));
+        const route = validateRoute(req.get('x-route'));
+        const fileName = normalizeText(req.get('x-file-name'), 255);
+        const mimeType = normalizeText(
+          req.get('x-file-mime') || 'application/octet-stream',
+          120
+        );
+        const sortOrder = Math.max(
+          -100000,
+          Math.min(100000, Number(req.get('x-sort-order')) || 0)
+        );
+
+        if (!game) {
+          return res.status(400).json({ ok: false, error: 'Juego inválido' });
+        }
+
+        if (!route) {
+          return res.status(400).json({ ok: false, error: 'Ruta inválida' });
+        }
+
+        if (!fileName || fileName.includes('/') || fileName.includes('\\')) {
+          return res.status(400).json({
+            ok: false,
+            error: 'Nombre de archivo inválido'
+          });
+        }
+
+        const now = new Date().toISOString();
+
+        const result = await pool.query(`
+          INSERT INTO app_original_files (
+            game, route, target_file_name, source_file_name,
+            mime_type, file_size, file_data, sort_order, created_at, updated_at
+          )
+          VALUES ($1,$2,$3,$3,$4,$5,$6,$7,$8,$8)
+          ON CONFLICT (game, route, target_file_name)
+          DO UPDATE SET
+            source_file_name = EXCLUDED.source_file_name,
+            mime_type = EXCLUDED.mime_type,
+            file_size = EXCLUDED.file_size,
+            file_data = EXCLUDED.file_data,
+            sort_order = EXCLUDED.sort_order,
+            updated_at = EXCLUDED.updated_at
+          RETURNING
+            id, game, route, target_file_name, source_file_name,
+            mime_type, file_size, sort_order, created_at, updated_at
+        `, [
+          game, route, fileName, mimeType, buffer.length, buffer,
+          sortOrder, now
+        ]);
+
+        const row = result.rows[0];
+        res.json({
+          ok: true,
+          original: {
+            id: Number(row.id),
+            game: row.game,
+            bundleId: GAME_MAP[row.game],
+            route: row.route,
+            fileName: row.target_file_name,
+            sourceFileName: row.source_file_name,
+            mimeType: row.mime_type,
+            fileSize: Number(row.file_size || 0),
+            sortOrder: Number(row.sort_order || 0),
+            updatedAt: row.updated_at,
+            sha256: crypto.createHash('sha256').update(buffer).digest('hex')
+          }
+        });
+      } catch (error) {
+        console.error('Upload original file error:', error);
+        res.status(500).json({ ok: false, error: 'Database error' });
+      }
+    }
+  );
+
+  app.delete(
+    '/api/admin/original-files/:id',
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const id = Number(req.params.id);
+        if (!Number.isSafeInteger(id) || id < 1) {
+          return res.status(400).json({ ok: false, error: 'ID inválido' });
+        }
+
+        const result = await pool.query(
+          'DELETE FROM app_original_files WHERE id = $1',
+          [id]
+        );
+
+        if (result.rowCount !== 1) {
+          return res.status(404).json({
+            ok: false,
+            error: 'Archivo original no encontrado'
+          });
+        }
+
+        res.json({ ok: true });
+      } catch (error) {
+        console.error('Delete original file error:', error);
+        res.status(500).json({ ok: false, error: 'Database error' });
+      }
+    }
+  );
+
+  /*
+   * =========================================================
+   * PUBLIC - OPTIONS FOR IPA
+   * =========================================================
+   */
+
+  app.get(
+    '/api/app/options',
+    async (req, res) => {
+      try {
+        const game = normalizeGame(req.query.game);
+
+        if (!game) {
+          return res.status(400).json({
+            ok: false,
+            error: 'game is required'
+          });
+        }
+
+        const result = await pool.query(`
+          SELECT
+            id, name, description, game, route, file_name, file_size, updated_at
+          FROM app_options
+          WHERE game = $1
+            AND enabled = TRUE
+          ORDER BY sort_order ASC, id ASC
+        `, [game]);
+
+        res.json({
+          ok: true,
+          game,
+          bundleId: GAME_MAP[game],
+          options: result.rows.map(row => ({
+            id: Number(row.id),
+            name: row.name,
+            description: row.description,
+            game: row.game,
+            bundleId: GAME_MAP[row.game],
+            route: row.route,
+            fileName: row.file_name,
+            fileSize: Number(row.file_size || 0),
+            updatedAt: row.updated_at,
+            fileUrl: `${process.env.PUBLIC_BASE_URL || ''}/api/app/options/${row.id}/file`
+          }))
+        });
+      } catch (error) {
+        console.error('Public app options error:', error);
+        res.status(500).json({ ok: false, error: 'Database error' });
+      }
+    }
+  );
+
+  /*
+   * =========================================================
+   * PUBLIC - ORIGINALS FOR DESACTIVAR
+   *
+   * Estos archivos viven en un apartado independiente del panel.
+   * La IPA mantiene el mismo contrato /api/app/originals.
+   * =========================================================
+   */
+
+  app.get(
+    '/api/app/originals',
+    async (req, res) => {
+      try {
+        const game = normalizeGame(req.query.game);
+
+        if (!game) {
+          return res.status(400).json({
+            ok: false,
+            error: 'game is required'
+          });
+        }
+
+        const result = await pool.query(`
+          SELECT
+            id, game, route, target_file_name, source_file_name,
+            file_size, updated_at
+          FROM app_original_files
+          WHERE game = $1
+          ORDER BY sort_order ASC, id ASC
+        `, [game]);
+
+        res.json({
+          ok: true,
+          game,
+          bundleId: GAME_MAP[game],
+          originals: result.rows.map(row => ({
+            id: Number(row.id),
+            game: row.game,
+            bundleId: GAME_MAP[row.game],
+            route: row.route,
+            fileName: row.target_file_name,
+            originalFileName: row.source_file_name,
+            originalFileSize: Number(row.file_size || 0),
+            originalFileUrl:
+              `${process.env.PUBLIC_BASE_URL || ''}/api/app/originals/${row.id}/file`,
+            updatedAt: row.updated_at
+          }))
+        });
+      } catch (error) {
+        console.error('Public app originals error:', error);
+        res.status(500).json({ ok: false, error: 'Database error' });
+      }
+    }
+  );
+
+  app.get(
+    '/api/app/originals/:id/file',
+    async (req, res) => {
+      try {
+        const id = Number(req.params.id);
+        const result = await pool.query(`
+          SELECT source_file_name, mime_type, file_size, file_data
+          FROM app_original_files
+          WHERE id = $1
+          LIMIT 1
+        `, [id]);
+
+        if (result.rows.length === 0 || !result.rows[0].file_data) {
+          return res.status(404).json({
+            ok: false,
+            error: 'Original file not found'
+          });
+        }
+
+        const row = result.rows[0];
+        res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
+        res.setHeader('Content-Length', String(row.file_size || row.file_data.length));
+        const safeFileName = String(row.source_file_name || 'original.bin')
+          .replace(/"/g, '');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${safeFileName}"`
+        );
+        res.send(row.file_data);
+      } catch (error) {
+        console.error('Download original file error:', error);
+        res.status(500).json({ ok: false, error: 'Database error' });
       }
     }
   );

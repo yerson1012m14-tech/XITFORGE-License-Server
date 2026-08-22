@@ -85,9 +85,20 @@ async function initializeDatabase() {
         status TEXT NOT NULL DEFAULT 'active',
         expires_at TIMESTAMPTZ NULL,
         device_limit INTEGER NOT NULL DEFAULT 1,
+        note TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       );
+    `);
+
+    /*
+     * MIGRACIÓN V2
+     * Conserva todas las keys existentes.
+     */
+
+    await client.query(`
+      ALTER TABLE licenses
+      ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
     `);
 
     /*
@@ -632,6 +643,7 @@ async function getLicenseByHash(
           status,
           expires_at,
           device_limit,
+          note,
           created_at,
           updated_at
         FROM licenses
@@ -1412,6 +1424,7 @@ app.get(
               l.status,
               l.expires_at,
               l.device_limit,
+              l.note,
               l.created_at,
               l.updated_at,
               (
@@ -1450,7 +1463,10 @@ app.get(
 
 /*
  * ---------------------------------------------------------
- * CREATE LICENSE
+ * CREATE LICENSE - V2
+ *
+ * Ya no se generan permanentes.
+ * durationDays puede ser cualquier entero entre 1 y 36500.
  * ---------------------------------------------------------
  */
 
@@ -1467,28 +1483,21 @@ app.post(
         );
 
       const deviceLimit =
-        Math.max(
-          1,
-          Math.min(
-            100,
-            Number(
-              req.body.deviceLimit
-            ) || 1
-          )
+        Number(
+          req.body.deviceLimit
         );
 
-      const allowed = [
-        0,
-        1,
-        7,
-        30,
-        365
-      ];
+      const note =
+        String(
+          req.body.note || ''
+        )
+          .trim()
+          .slice(0, 120);
 
       if (
-        !allowed.includes(
-          durationDays
-        )
+        !Number.isInteger(durationDays) ||
+        durationDays < 1 ||
+        durationDays > 36500
       ) {
 
         return res
@@ -1496,7 +1505,22 @@ app.post(
           .json({
             ok: false,
             error:
-              'durationDays must be one of 0, 1, 7, 30, 365'
+              'Los días deben ser un número entero entre 1 y 36500'
+          });
+      }
+
+      if (
+        !Number.isInteger(deviceLimit) ||
+        deviceLimit < 1 ||
+        deviceLimit > 100
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              'El límite de dispositivos debe estar entre 1 y 100'
           });
       }
 
@@ -1509,23 +1533,15 @@ app.post(
       const timestamp =
         nowIso();
 
-      let expiresAt =
-        null;
-
-      if (
-        durationDays > 0
-      ) {
-
-        expiresAt =
-          new Date(
-            Date.now() +
-            durationDays *
-              24 *
-              60 *
-              60 *
-              1000
-          ).toISOString();
-      }
+      const expiresAt =
+        new Date(
+          Date.now() +
+          durationDays *
+            24 *
+            60 *
+            60 *
+            1000
+        ).toISOString();
 
       const result =
         await pool.query(
@@ -1538,6 +1554,7 @@ app.post(
                 status,
                 expires_at,
                 device_limit,
+                note,
                 created_at,
                 updated_at
               )
@@ -1550,7 +1567,8 @@ app.post(
                 $4,
                 $5,
                 $6,
-                $7
+                $7,
+                $8
               )
             RETURNING id
           `,
@@ -1560,6 +1578,7 @@ app.post(
             normalized.slice(-4),
             expiresAt,
             deviceLimit,
+            note,
             timestamp,
             timestamp
           ]
@@ -1572,7 +1591,9 @@ app.post(
           key: normalized,
           status: 'active',
           expiresAt,
+          durationDays,
           deviceLimit,
+          note,
           createdAt:
             timestamp,
           id:
@@ -1784,7 +1805,7 @@ app.post(
       if (
         !Number.isInteger(days) ||
         days < 1 ||
-        days > 3650
+        days > 36500
       ) {
 
         return res
@@ -1792,7 +1813,7 @@ app.post(
           .json({
             ok: false,
             error:
-              'days must be an integer between 1 and 3650'
+              'days must be an integer between 1 and 36500'
           });
       }
 
@@ -1883,7 +1904,226 @@ app.post(
 
 /*
  * ---------------------------------------------------------
- * VIEW ACTIVATIONS
+ * REPLACE KEY
+ *
+ * Genera una key nueva sin cambiar vencimiento, cliente,
+ * límite de dispositivos ni estado. La key anterior deja de
+ * funcionar inmediatamente y se liberan los dispositivos.
+ * ---------------------------------------------------------
+ */
+
+app.post(
+  '/api/admin/licenses/:id/replace',
+  requireAdmin,
+  async (req, res) => {
+    const id = Number(req.params.id);
+
+    if (!Number.isSafeInteger(id) || id < 1) {
+      return res.status(400).json({ ok: false, error: 'ID inválido' });
+    }
+
+    let client = null;
+
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+
+      const current = await client.query(`
+        SELECT
+          id, status, expires_at, device_limit, note
+        FROM licenses
+        WHERE id = $1
+        FOR UPDATE
+      `, [id]);
+
+      if (current.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ ok: false, error: 'License not found' });
+      }
+
+      let normalized = '';
+      let keyHash = '';
+
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        normalized = normalizeKey(generateKey());
+        keyHash = hashValue(normalized);
+
+        const collision = await client.query(
+          'SELECT 1 FROM licenses WHERE key_hash = $1 AND id <> $2 LIMIT 1',
+          [keyHash, id]
+        );
+
+        if (collision.rows.length === 0) {
+          break;
+        }
+
+        normalized = '';
+      }
+
+      if (!normalized) {
+        throw new Error('Could not generate a unique replacement key');
+      }
+
+      const updated = await client.query(`
+        UPDATE licenses
+        SET
+          key_hash = $1,
+          key_prefix = $2,
+          key_last4 = $3,
+          updated_at = $4
+        WHERE id = $5
+        RETURNING
+          id, status, expires_at, device_limit, note, updated_at
+      `, [
+        keyHash,
+        normalized.slice(0, 9),
+        normalized.slice(-4),
+        nowIso(),
+        id
+      ]);
+
+      await client.query(
+        'DELETE FROM activations WHERE license_id = $1',
+        [id]
+      );
+
+      await client.query('COMMIT');
+
+      res.json({
+        ok: true,
+        key: normalized,
+        license: updated.rows[0],
+        devicesReset: true
+      });
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      console.error('Replace license key error:', error);
+      res.status(500).json({ ok: false, error: 'Database error' });
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
+  }
+);
+
+/*
+ * ---------------------------------------------------------
+ * UPDATE LICENSE - V2
+ * ---------------------------------------------------------
+ */
+
+app.patch(
+  '/api/admin/licenses/:id',
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const id =
+        Number(
+          req.params.id
+        );
+
+      if (
+        !Number.isSafeInteger(id) ||
+        id < 1
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error: 'ID inválido'
+          });
+      }
+
+      const deviceLimit =
+        Number(
+          req.body.deviceLimit
+        );
+
+      const note =
+        String(
+          req.body.note || ''
+        )
+          .trim()
+          .slice(0, 120);
+
+      if (
+        !Number.isInteger(deviceLimit) ||
+        deviceLimit < 1 ||
+        deviceLimit > 100
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              'El límite de dispositivos debe estar entre 1 y 100'
+          });
+      }
+
+      const result =
+        await pool.query(
+          `
+            UPDATE licenses
+            SET
+              device_limit = $1,
+              note = $2,
+              updated_at = $3
+            WHERE id = $4
+            RETURNING
+              id,
+              device_limit,
+              note,
+              updated_at
+          `,
+          [
+            deviceLimit,
+            note,
+            nowIso(),
+            id
+          ]
+        );
+
+      if (
+        result.rowCount !== 1
+      ) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+            error: 'License not found'
+          });
+      }
+
+      res.json({
+        ok: true,
+        license:
+          result.rows[0]
+      });
+
+    } catch (error) {
+
+      console.error(
+        'Update license error:',
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          ok: false,
+          error:
+            'Database error'
+        });
+    }
+  }
+);
+
+/*
+ * ---------------------------------------------------------
+ * VIEW ACTIVATIONS - V2
  * ---------------------------------------------------------
  */
 
@@ -1899,10 +2139,39 @@ app.get(
           req.params.id
         );
 
+      const exists =
+        await pool.query(
+          `
+            SELECT id
+            FROM licenses
+            WHERE id = $1
+            LIMIT 1
+          `,
+          [id]
+        );
+
+      if (
+        exists.rows.length === 0
+      ) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+            error: 'License not found'
+          });
+      }
+
       const result =
         await pool.query(
           `
             SELECT
+              id,
+              UPPER(
+                SUBSTRING(
+                  device_hash
+                  FROM 1 FOR 8
+                )
+              ) AS device_code,
               activated_at,
               last_seen_at
             FROM activations
@@ -1922,6 +2191,210 @@ app.get(
 
       console.error(
         'View activations error:',
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          ok: false,
+          error:
+            'Database error'
+        });
+    }
+  }
+);
+
+/*
+ * ---------------------------------------------------------
+ * RESET ALL DEVICES
+ * ---------------------------------------------------------
+ */
+
+app.delete(
+  '/api/admin/licenses/:id/activations',
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const id =
+        Number(
+          req.params.id
+        );
+
+      const license =
+        await pool.query(
+          `
+            SELECT id
+            FROM licenses
+            WHERE id = $1
+            LIMIT 1
+          `,
+          [id]
+        );
+
+      if (
+        license.rows.length === 0
+      ) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+            error: 'License not found'
+          });
+      }
+
+      const result =
+        await pool.query(
+          `
+            DELETE FROM activations
+            WHERE license_id = $1
+          `,
+          [id]
+        );
+
+      res.json({
+        ok: true,
+        removed:
+          result.rowCount
+      });
+
+    } catch (error) {
+
+      console.error(
+        'Reset devices error:',
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          ok: false,
+          error:
+            'Database error'
+        });
+    }
+  }
+);
+
+/*
+ * ---------------------------------------------------------
+ * REMOVE ONE DEVICE
+ * ---------------------------------------------------------
+ */
+
+app.delete(
+  '/api/admin/licenses/:id/activations/:activationId',
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const id =
+        Number(
+          req.params.id
+        );
+
+      const activationId =
+        Number(
+          req.params.activationId
+        );
+
+      const result =
+        await pool.query(
+          `
+            DELETE FROM activations
+            WHERE id = $1
+              AND license_id = $2
+          `,
+          [
+            activationId,
+            id
+          ]
+        );
+
+      if (
+        result.rowCount !== 1
+      ) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+            error:
+              'Dispositivo no encontrado'
+          });
+      }
+
+      res.json({
+        ok: true
+      });
+
+    } catch (error) {
+
+      console.error(
+        'Remove device error:',
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          ok: false,
+          error:
+            'Database error'
+        });
+    }
+  }
+);
+
+/*
+ * ---------------------------------------------------------
+ * DELETE LICENSE
+ * ---------------------------------------------------------
+ */
+
+app.delete(
+  '/api/admin/licenses/:id',
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const id =
+        Number(
+          req.params.id
+        );
+
+      const result =
+        await pool.query(
+          `
+            DELETE FROM licenses
+            WHERE id = $1
+          `,
+          [id]
+        );
+
+      if (
+        result.rowCount !== 1
+      ) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+            error:
+              'License not found'
+          });
+      }
+
+      res.json({
+        ok: true
+      });
+
+    } catch (error) {
+
+      console.error(
+        'Delete license error:',
         error
       );
 

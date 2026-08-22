@@ -74,7 +74,7 @@ const versionView =
 
 /*
  * =========================================================
- * LICENCIAS
+ * LICENCIAS V2
  * =========================================================
  */
 
@@ -93,6 +93,11 @@ const createdKeyValue =
     'createdKeyValue'
   );
 
+const createdKeyMeta =
+  document.getElementById(
+    'createdKeyMeta'
+  );
+
 const copyKeyButton =
   document.getElementById(
     'copyKeyButton'
@@ -108,6 +113,110 @@ const tableWrap =
     'tableWrap'
   );
 
+const durationPresetWrap =
+  document.getElementById(
+    'durationPresetWrap'
+  );
+
+const customDurationWrap =
+  document.getElementById(
+    'customDurationWrap'
+  );
+
+const customDurationDays =
+  document.getElementById(
+    'customDurationDays'
+  );
+
+const deviceLimitInput =
+  document.getElementById(
+    'deviceLimit'
+  );
+
+const licenseNoteInput =
+  document.getElementById(
+    'licenseNote'
+  );
+
+const createSummary =
+  document.getElementById(
+    'createSummary'
+  );
+
+const createError =
+  document.getElementById(
+    'createError'
+  );
+
+const licenseSearch =
+  document.getElementById(
+    'licenseSearch'
+  );
+
+const licenseStatusFilter =
+  document.getElementById(
+    'licenseStatusFilter'
+  );
+
+const statTotal =
+  document.getElementById(
+    'statTotal'
+  );
+
+const statActive =
+  document.getElementById(
+    'statActive'
+  );
+
+const statExpired =
+  document.getElementById(
+    'statExpired'
+  );
+
+const statRevoked =
+  document.getElementById(
+    'statRevoked'
+  );
+
+const statDevices =
+  document.getElementById(
+    'statDevices'
+  );
+
+const licenseModal =
+  document.getElementById(
+    'licenseModal'
+  );
+
+const licenseModalEyebrow =
+  document.getElementById(
+    'licenseModalEyebrow'
+  );
+
+const licenseModalTitle =
+  document.getElementById(
+    'licenseModalTitle'
+  );
+
+const licenseModalBody =
+  document.getElementById(
+    'licenseModalBody'
+  );
+
+const licenseModalActions =
+  document.getElementById(
+    'licenseModalActions'
+  );
+
+const licenseModalClose =
+  document.getElementById(
+    'licenseModalClose'
+  );
+
+const toast =
+  document.getElementById(
+    'toast'
+  );
 
 /*
  * =========================================================
@@ -185,6 +294,7 @@ const optionFile =
     'optionFile'
   );
 
+
 const optionSortOrder =
   document.getElementById(
     'optionSortOrder'
@@ -194,6 +304,19 @@ const optionsWrap =
   document.getElementById(
     'optionsWrap'
   );
+
+
+const newOriginalButton = document.getElementById('newOriginalButton');
+const originalFormWrap = document.getElementById('originalFormWrap');
+const originalForm = document.getElementById('originalForm');
+const originalGame = document.getElementById('originalGame');
+const originalRoute = document.getElementById('originalRoute');
+const originalFiles = document.getElementById('originalFiles');
+const cancelOriginalButton = document.getElementById('cancelOriginalButton');
+const originalFormError = document.getElementById('originalFormError');
+const originalFilesWrap = document.getElementById('originalFilesWrap');
+
+let originalFilesCache = [];
 
 
 /*
@@ -524,6 +647,7 @@ function showOptionsTab() {
   );
 
   loadOptions();
+  loadOriginalFiles();
 }
 
 
@@ -559,68 +683,192 @@ function showVersionTab() {
 
 /*
  * =========================================================
+ * LICENCIAS V2 - ESTADO
+ * =========================================================
+ */
+
+let licensesCache = [];
+let selectedDuration = 7;
+let toastTimer = null;
+
+function showToast(message, type = 'success') {
+  toast.textContent = String(message || '');
+  toast.className = `toast ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), 2400);
+}
+
+function closeLicenseModal() {
+  if (licenseModal.open) {
+    licenseModal.close();
+  }
+  licenseModalBody.innerHTML = '';
+  licenseModalActions.innerHTML = '';
+}
+
+licenseModalClose.addEventListener('click', closeLicenseModal);
+
+licenseModal.addEventListener('click', event => {
+  if (event.target === licenseModal) {
+    closeLicenseModal();
+  }
+});
+
+function openLicenseModal({
+  eyebrow = 'XITFORGE',
+  title,
+  body,
+  actions = []
+}) {
+  licenseModalEyebrow.textContent = eyebrow;
+  licenseModalTitle.textContent = title;
+  licenseModalBody.innerHTML = body;
+  licenseModalActions.innerHTML = '';
+
+  for (const action of actions) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = action.label;
+    button.className = action.className || 'secondary';
+    button.addEventListener('click', action.onClick);
+    licenseModalActions.appendChild(button);
+  }
+
+  if (!licenseModal.open) {
+    licenseModal.showModal();
+  }
+}
+
+/*
+ * =========================================================
+ * DURACIÓN
+ * =========================================================
+ */
+
+function currentDurationDays() {
+  if (selectedDuration === 'custom') {
+    return Number(customDurationDays.value);
+  }
+  return Number(selectedDuration);
+}
+
+function updateCreateSummary() {
+  const days = currentDurationDays();
+  const devices = Number(deviceLimitInput.value) || 1;
+
+  const durationText =
+    Number.isInteger(days) && days > 0
+      ? `${days} ${days === 1 ? 'día' : 'días'}`
+      : 'Selecciona los días';
+
+  createSummary.textContent =
+    `${durationText} · ${devices} ${devices === 1 ? 'dispositivo' : 'dispositivos'}`;
+}
+
+durationPresetWrap
+  .querySelectorAll('.durationPreset')
+  .forEach(button => {
+    button.addEventListener('click', () => {
+      durationPresetWrap
+        .querySelectorAll('.durationPreset')
+        .forEach(item => item.classList.remove('active'));
+
+      button.classList.add('active');
+
+      selectedDuration =
+        button.dataset.days === 'custom'
+          ? 'custom'
+          : Number(button.dataset.days);
+
+      customDurationWrap.classList.toggle(
+        'hidden',
+        selectedDuration !== 'custom'
+      );
+
+      if (selectedDuration === 'custom') {
+        customDurationDays.focus();
+      }
+
+      updateCreateSummary();
+    });
+  });
+
+customDurationDays.addEventListener('input', updateCreateSummary);
+deviceLimitInput.addEventListener('input', updateCreateSummary);
+
+/*
+ * =========================================================
  * CREAR LICENCIA
  * =========================================================
  */
 
-createForm.addEventListener(
-  'submit',
-  async event => {
+createForm.addEventListener('submit', async event => {
+  event.preventDefault();
 
-    event.preventDefault();
+  createError.textContent = '';
 
-    try {
+  const durationDays = currentDurationDays();
+  const deviceLimit = Number(deviceLimitInput.value);
+  const note = licenseNoteInput.value.trim();
 
-      const durationDays =
-        Number(
-          document
-            .getElementById(
-              'durationDays'
-            )
-            .value
-        );
-
-      const deviceLimit =
-        Number(
-          document
-            .getElementById(
-              'deviceLimit'
-            )
-            .value
-        );
-
-      const data =
-        await api(
-          '/api/admin/licenses',
-          {
-            method: 'POST',
-
-            body:
-              JSON.stringify({
-                durationDays,
-                deviceLimit
-              })
-          }
-        );
-
-      createdKeyValue.textContent =
-        data.key;
-
-      createdKey.classList.remove(
-        'hidden'
-      );
-
-      await loadLicenses();
-
-    } catch (error) {
-
-      alert(
-        error.message
-      );
-    }
+  if (
+    !Number.isInteger(durationDays) ||
+    durationDays < 1 ||
+    durationDays > 36500
+  ) {
+    createError.textContent =
+      'Pon una cantidad válida de días.';
+    return;
   }
-);
 
+  if (
+    !Number.isInteger(deviceLimit) ||
+    deviceLimit < 1 ||
+    deviceLimit > 100
+  ) {
+    createError.textContent =
+      'El número de dispositivos debe estar entre 1 y 100.';
+    return;
+  }
+
+  const submitButton =
+    createForm.querySelector('button[type="submit"]');
+
+  const oldText = submitButton.textContent;
+  submitButton.disabled = true;
+  submitButton.textContent = 'GENERANDO...';
+
+  try {
+    const data = await api(
+      '/api/admin/licenses',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          durationDays,
+          deviceLimit,
+          note
+        })
+      }
+    );
+
+    createdKeyValue.textContent = data.key;
+    createdKeyMeta.textContent =
+      `${durationDays} ${durationDays === 1 ? 'día' : 'días'} · ` +
+      `${deviceLimit} ${deviceLimit === 1 ? 'dispositivo' : 'dispositivos'}` +
+      `${note ? ` · ${note}` : ''}`;
+
+    createdKey.classList.remove('hidden');
+
+    showToast('Key generada correctamente');
+
+    await loadLicenses();
+  } catch (error) {
+    createError.textContent = error.message;
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = oldText;
+  }
+});
 
 /*
  * =========================================================
@@ -628,290 +876,268 @@ createForm.addEventListener(
  * =========================================================
  */
 
-copyKeyButton.addEventListener(
-  'click',
-  async () => {
+async function copyText(text) {
+  const value = String(text || '');
 
-    try {
-
-      await navigator.clipboard.writeText(
-        createdKeyValue.textContent
-      );
-
-      copyKeyButton.textContent =
-        'Copiada';
-
-      setTimeout(
-        () => {
-          copyKeyButton.textContent =
-            'Copiar';
-        },
-        1200
-      );
-
-    } catch {
-
-      alert(
-        'No se pudo copiar la key.'
-      );
-    }
+  if (!value) {
+    throw new Error('Nada para copiar');
   }
-);
 
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
 
-refreshButton.addEventListener(
-  'click',
-  loadLicenses
-);
+  const area = document.createElement('textarea');
+  area.value = value;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  area.style.pointerEvents = 'none';
+  document.body.appendChild(area);
+  area.select();
+  area.setSelectionRange(0, area.value.length);
 
-logoutButton.addEventListener(
-  'click',
-  logout
-);
+  const ok = document.execCommand('copy');
+  area.remove();
 
+  if (!ok) {
+    throw new Error('No se pudo copiar');
+  }
+}
+
+copyKeyButton.addEventListener('click', async () => {
+  try {
+    await copyText(createdKeyValue.textContent);
+    copyKeyButton.textContent = 'Copiada ✓';
+    showToast('Key copiada');
+
+    setTimeout(() => {
+      copyKeyButton.textContent = 'Copiar key';
+    }, 1200);
+  } catch {
+    showToast('No se pudo copiar la key', 'error');
+  }
+});
 
 /*
  * =========================================================
- * LICENCIAS - FECHAS
+ * HELPERS
  * =========================================================
  */
 
-function formatDate(
-  value
-) {
-
+function formatDate(value) {
   if (!value) {
-    return 'Permanente';
+    return 'Sin expiración';
   }
 
-  const date =
-    new Date(value);
+  const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-
+  if (Number.isNaN(date.getTime())) {
     return value;
   }
 
-  return date.toLocaleString(
-    'es-DO'
-  );
+  return date.toLocaleString('es-DO');
 }
 
+function licenseState(license) {
+  if (license.status === 'revoked') {
+    return 'revoked';
+  }
+
+  if (
+    license.expires_at &&
+    Date.now() >= new Date(license.expires_at).getTime()
+  ) {
+    return 'expired';
+  }
+
+  return 'active';
+}
+
+function statusBadge(license) {
+  const state = licenseState(license);
+
+  if (state === 'active') {
+    return '<span class="badge active">ACTIVA</span>';
+  }
+
+  if (state === 'expired') {
+    return '<span class="badge expired">EXPIRADA</span>';
+  }
+
+  return '<span class="badge revoked">REVOCADA</span>';
+}
+
+function licenseDisplayKey(license) {
+  return `${license.key_prefix}•••${license.key_last4}`;
+}
+
+function filteredLicenses() {
+  const query = String(licenseSearch.value || '')
+    .trim()
+    .toLowerCase();
+
+  const stateFilter = licenseStatusFilter.value;
+
+  return licensesCache.filter(license => {
+    const state = licenseState(license);
+
+    if (
+      stateFilter !== 'all' &&
+      state !== stateFilter
+    ) {
+      return false;
+    }
+
+    if (!query) {
+      return true;
+    }
+
+    const searchable = [
+      license.key_prefix,
+      license.key_last4,
+      license.note || '',
+      state
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return searchable.includes(query);
+  });
+}
+
+function updateStats() {
+  let active = 0;
+  let expired = 0;
+  let revoked = 0;
+  let devices = 0;
+
+  for (const license of licensesCache) {
+    const state = licenseState(license);
+
+    if (state === 'active') active += 1;
+    if (state === 'expired') expired += 1;
+    if (state === 'revoked') revoked += 1;
+
+    devices += Number(license.devices || 0);
+  }
+
+  statTotal.textContent = licensesCache.length;
+  statActive.textContent = active;
+  statExpired.textContent = expired;
+  statRevoked.textContent = revoked;
+  statDevices.textContent = devices;
+}
 
 /*
  * =========================================================
- * LICENCIAS - BADGE
- * =========================================================
- */
-
-function statusBadge(
-  status
-) {
-
-  const cls =
-    status === 'active'
-      ? 'active'
-      : 'revoked';
-
-  const label =
-    status === 'active'
-      ? 'ACTIVA'
-      : 'REVOCADA';
-
-  return `
-    <span
-      class="badge ${cls}"
-    >
-      ${label}
-    </span>
-  `;
-}
-
-
-/*
- * =========================================================
- * CARGAR LICENCIAS
+ * CARGAR / RENDER LICENCIAS
  * =========================================================
  */
 
 async function loadLicenses() {
-
   try {
+    const data = await api('/api/admin/licenses');
 
-    const data =
-      await api(
-        '/api/admin/licenses'
-      );
+    licensesCache = data.licenses || [];
 
-    if (
-      !data.licenses.length
-    ) {
-
-      tableWrap.innerHTML =
-        '<p class="muted">No hay keys todavía.</p>';
-
-      return;
-    }
-
-    const rows =
-      data.licenses.map(
-        license => {
-
-          const actionButtons =
-            license.status === 'active'
-
-              ? `
-                <button
-                  class="small danger"
-                  data-action="revoke"
-                  data-id="${license.id}"
-                >
-                  Revocar
-                </button>
-              `
-
-              : `
-                <button
-                  class="small"
-                  data-action="reactivate"
-                  data-id="${license.id}"
-                >
-                  Reactivar
-                </button>
-              `;
-
-          return `
-            <tr>
-
-              <td>
-                <strong>
-                  ${license.key_prefix}
-                  •••
-                  ${license.key_last4}
-                </strong>
-              </td>
-
-              <td>
-                ${statusBadge(
-                  license.status
-                )}
-              </td>
-
-              <td>
-                ${formatDate(
-                  license.expires_at
-                )}
-              </td>
-
-              <td>
-                ${license.devices}
-                /
-                ${license.device_limit}
-              </td>
-
-              <td>
-                ${formatDate(
-                  license.created_at
-                )}
-              </td>
-
-              <td>
-
-                ${actionButtons}
-
-                <button
-                  class="small"
-                  data-action="extend"
-                  data-id="${license.id}"
-                >
-                  + días
-                </button>
-
-              </td>
-
-            </tr>
-          `;
-        }
-      ).join('');
-
-    tableWrap.innerHTML = `
-      <div class="tableScroll">
-
-        <table>
-
-          <thead>
-
-            <tr>
-
-              <th>
-                Key
-              </th>
-
-              <th>
-                Estado
-              </th>
-
-              <th>
-                Expira
-              </th>
-
-              <th>
-                Dispositivos
-              </th>
-
-              <th>
-                Creada
-              </th>
-
-              <th>
-                Acciones
-              </th>
-
-            </tr>
-
-          </thead>
-
-          <tbody>
-            ${rows}
-          </tbody>
-
-        </table>
-
-      </div>
-    `;
-
-
-    tableWrap
-      .querySelectorAll(
-        'button[data-action]'
-      )
-      .forEach(
-        button => {
-
-          button.addEventListener(
-            'click',
-            handleLicenseAction
-          );
-        }
-      );
-
+    updateStats();
+    renderLicenses();
   } catch (error) {
-
     tableWrap.innerHTML =
-      `
-        <p class="error">
-          ${escapeHtml(
-            error.message
-          )}
-        </p>
-      `;
+      `<div class="emptyState error">${escapeHtml(error.message)}</div>`;
   }
 }
 
+function renderLicenses() {
+  const licenses = filteredLicenses();
+
+  if (licenses.length === 0) {
+    tableWrap.innerHTML =
+      '<div class="emptyState">No hay licencias que coincidan.</div>';
+    return;
+  }
+
+  const rows = licenses.map(license => {
+    const state = licenseState(license);
+    const canReactivate = state === 'revoked';
+
+    return `
+      <tr>
+        <td>
+          <div class="licenseKey">
+            ${escapeHtml(licenseDisplayKey(license))}
+          </div>
+          <div class="licenseNote">
+            ${escapeHtml(license.note || 'Sin nota')}
+          </div>
+        </td>
+
+        <td>
+          ${statusBadge(license)}
+        </td>
+
+        <td>
+          <div class="deviceCount">
+            ${Number(license.devices || 0)}
+            /
+            ${Number(license.device_limit || 1)}
+          </div>
+        </td>
+
+        <td>
+          <div class="expiresText">
+            ${escapeHtml(formatDate(license.expires_at))}
+          </div>
+        </td>
+
+        <td>
+          <button
+            type="button"
+            class="small secondary manageButton"
+            data-action="manage"
+            data-id="${license.id}"
+          >
+            Administrar
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  tableWrap.innerHTML = `
+    <div class="tableScroll">
+      <table class="licenseTable">
+        <thead>
+          <tr>
+            <th>Key / Cliente</th>
+            <th>Estado</th>
+            <th>Dispositivos</th>
+            <th>Expira</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  tableWrap
+    .querySelectorAll('button[data-action]')
+    .forEach(button => {
+      button.addEventListener(
+        'click',
+        handleLicenseAction
+      );
+    });
+}
+
+refreshButton.addEventListener('click', loadLicenses);
+licenseSearch.addEventListener('input', renderLicenses);
+licenseStatusFilter.addEventListener('change', renderLicenses);
 
 /*
  * =========================================================
@@ -919,98 +1145,718 @@ async function loadLicenses() {
  * =========================================================
  */
 
-async function handleLicenseAction(
-  event
-) {
+function getCachedLicense(id) {
+  return licensesCache.find(
+    item => String(item.id) === String(id)
+  ) || null;
+}
 
-  const button =
-    event.currentTarget;
+async function handleLicenseAction(event) {
+  const button = event.currentTarget;
+  const id = button.dataset.id;
+  const action = button.dataset.action;
+  const license = getCachedLicense(id);
 
-  const id =
-    button.dataset.id;
+  if (!license) {
+    return;
+  }
 
-  const action =
-    button.dataset.action;
+  if (action === 'manage') {
+    showManageLicense(license);
+    return;
+  }
 
-  try {
+  if (action === 'devices') {
+    await showDevices(license);
+    return;
+  }
 
-    if (
-      action === 'revoke'
-    ) {
+  if (action === 'reset') {
+    confirmResetDevices(license);
+    return;
+  }
 
-      const confirmed =
-        confirm(
-          '¿Seguro que quieres revocar esta key?'
-        );
+  if (action === 'extend') {
+    showExtendLicense(license);
+    return;
+  }
 
-      if (!confirmed) {
-        return;
-      }
+  if (action === 'edit') {
+    showEditLicense(license);
+    return;
+  }
 
-      await api(
-        `/api/admin/licenses/${id}/revoke`,
-        {
-          method: 'POST'
-        }
-      );
-    }
+  if (action === 'revoke') {
+    confirmRevoke(license);
+    return;
+  }
 
+  if (action === 'reactivate') {
+    await reactivateLicense(license);
+    return;
+  }
 
-    if (
-      action === 'reactivate'
-    ) {
-
-      await api(
-        `/api/admin/licenses/${id}/reactivate`,
-        {
-          method: 'POST'
-        }
-      );
-    }
-
-
-    if (
-      action === 'extend'
-    ) {
-
-      const days =
-        Number(
-          prompt(
-            '¿Cuántos días quieres agregar?'
-          )
-        );
-
-      if (
-        !Number.isInteger(days) ||
-        days < 1
-      ) {
-
-        return;
-      }
-
-      await api(
-        `/api/admin/licenses/${id}/extend`,
-        {
-          method: 'POST',
-
-          body:
-            JSON.stringify({
-              days
-            })
-        }
-      );
-    }
-
-    await loadLicenses();
-
-  } catch (error) {
-
-    alert(
-      error.message
-    );
+  if (action === 'delete') {
+    confirmDeleteLicense(license);
   }
 }
 
+/*
+ * =========================================================
+ * MENÚ DE ADMINISTRACIÓN
+ * =========================================================
+ */
+
+function showManageLicense(license) {
+  const state = licenseState(license);
+  const canReactivate = state === 'revoked';
+
+  openLicenseModal({
+    eyebrow: 'ADMINISTRAR KEY',
+    title: licenseDisplayKey(license),
+    body: `
+      <div class="manageSummary">
+        <div>
+          <span>Cliente / nota</span>
+          <strong>${escapeHtml(license.note || 'Sin nota')}</strong>
+        </div>
+
+        <div>
+          <span>Dispositivos</span>
+          <strong>
+            ${Number(license.devices || 0)}
+            /
+            ${Number(license.device_limit || 1)}
+          </strong>
+        </div>
+
+        <div>
+          <span>Expira</span>
+          <strong>${escapeHtml(formatDate(license.expires_at))}</strong>
+        </div>
+      </div>
+
+      <div class="manageActions">
+        <button type="button" data-manage="devices">
+          Ver dispositivos
+        </button>
+
+        <button type="button" data-manage="reset">
+          Reset dispositivos
+        </button>
+
+        <button type="button" data-manage="extend">
+          + Agregar días
+        </button>
+
+        <button type="button" data-manage="edit">
+          Editar cliente / límite
+        </button>
+
+        <button type="button" data-manage="replace">
+          Reemplazar key
+        </button>
+
+        <button type="button" data-manage="${canReactivate ? 'reactivate' : 'revoke'}">
+          ${canReactivate ? 'Reactivar key' : 'Revocar key'}
+        </button>
+
+        <button
+          type="button"
+          class="menuDanger"
+          data-manage="delete"
+        >
+          Borrar key
+        </button>
+      </div>
+    `,
+    actions: [
+      {
+        label: 'Cerrar',
+        className: 'secondary',
+        onClick: closeLicenseModal
+      }
+    ]
+  });
+
+  licenseModalBody
+    .querySelectorAll('[data-manage]')
+    .forEach(button => {
+      button.addEventListener('click', async () => {
+        const action = button.dataset.manage;
+
+        if (action === 'devices') {
+          await showDevices(license);
+          return;
+        }
+
+        if (action === 'reset') {
+          confirmResetDevices(license);
+          return;
+        }
+
+        if (action === 'extend') {
+          showExtendLicense(license);
+          return;
+        }
+
+        if (action === 'edit') {
+          showEditLicense(license);
+          return;
+        }
+
+        if (action === 'replace') {
+          confirmReplaceLicense(license);
+          return;
+        }
+
+        if (action === 'revoke') {
+          confirmRevoke(license);
+          return;
+        }
+
+        if (action === 'reactivate') {
+          closeLicenseModal();
+          await reactivateLicense(license);
+          return;
+        }
+
+        if (action === 'delete') {
+          confirmDeleteLicense(license);
+        }
+      });
+    });
+}
+
+
+/*
+ * =========================================================
+ * REEMPLAZAR KEY
+ * =========================================================
+ */
+
+function confirmReplaceLicense(license) {
+  openLicenseModal({
+    eyebrow: 'REEMPLAZAR KEY',
+    title: licenseDisplayKey(license),
+    body: `
+      <div class="warningBox">
+        La key anterior dejará de funcionar inmediatamente.
+        Se conservarán el vencimiento, cliente y límite de dispositivos.
+        Los celulares vinculados se liberarán.
+      </div>
+    `,
+    actions: [
+      {
+        label: 'Cancelar',
+        className: 'secondary',
+        onClick: closeLicenseModal
+      },
+      {
+        label: 'Reemplazar key',
+        className: 'danger',
+        onClick: () => replaceLicenseKey(license)
+      }
+    ]
+  });
+}
+
+async function replaceLicenseKey(license) {
+  try {
+    const data = await api(
+      `/api/admin/licenses/${license.id}/replace`,
+      { method: 'POST' }
+    );
+
+    await loadLicenses();
+
+    openLicenseModal({
+      eyebrow: 'NUEVA KEY',
+      title: 'Key reemplazada',
+      body: `
+        <div class="replacementKeyBox">
+          <code id="replacementKeyValue">${escapeHtml(data.key)}</code>
+          <p class="keySaveWarning">
+            ⚠ Guarda esta key ahora. Después solo se mostrará parcialmente.
+          </p>
+          <button id="copyReplacementKey" type="button">Copiar key</button>
+        </div>
+      `,
+      actions: [
+        {
+          label: 'Cerrar',
+          className: 'secondary',
+          onClick: closeLicenseModal
+        }
+      ]
+    });
+
+    const copyButton = document.getElementById('copyReplacementKey');
+    copyButton.addEventListener('click', async () => {
+      try {
+        await copyText(data.key);
+        copyButton.textContent = 'Copiada ✓';
+        showToast('Nueva key copiada');
+      } catch {
+        showToast('No se pudo copiar la key', 'error');
+      }
+    });
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+
+/*
+ * =========================================================
+ * DISPOSITIVOS
+ * =========================================================
+ */
+
+async function showDevices(license) {
+  openLicenseModal({
+    eyebrow: 'DISPOSITIVOS',
+    title: licenseDisplayKey(license),
+    body: '<div class="modalLoading">Cargando...</div>',
+    actions: [
+      {
+        label: 'Cerrar',
+        className: 'secondary',
+        onClick: closeLicenseModal
+      }
+    ]
+  });
+
+  try {
+    const data = await api(
+      `/api/admin/licenses/${license.id}/activations`
+    );
+
+    const devices = data.activations || [];
+
+    if (devices.length === 0) {
+      licenseModalBody.innerHTML =
+        '<div class="emptyState">Esta key no tiene ningún celular vinculado.</div>';
+      return;
+    }
+
+    licenseModalBody.innerHTML = devices.map(device => `
+      <div class="deviceItem">
+        <div>
+          <strong>
+            Celular ${escapeHtml(device.device_code)}
+          </strong>
+          <span>
+            Vinculado: ${escapeHtml(formatDate(device.activated_at))}
+          </span>
+          <span>
+            Último uso: ${escapeHtml(formatDate(device.last_seen_at))}
+          </span>
+        </div>
+
+        <button
+          class="small danger"
+          type="button"
+          data-remove-device="${device.id}"
+        >
+          Quitar
+        </button>
+      </div>
+    `).join('');
+
+    licenseModalBody
+      .querySelectorAll('[data-remove-device]')
+      .forEach(removeButton => {
+        removeButton.addEventListener('click', async () => {
+          removeButton.disabled = true;
+
+          try {
+            await api(
+              `/api/admin/licenses/${license.id}/activations/${removeButton.dataset.removeDevice}`,
+              {
+                method: 'DELETE'
+              }
+            );
+
+            showToast('Dispositivo eliminado');
+
+            await loadLicenses();
+
+            await showDevices(
+              getCachedLicense(license.id) || license
+            );
+          } catch (error) {
+            removeButton.disabled = false;
+            showToast(error.message, 'error');
+          }
+        });
+      });
+  } catch (error) {
+    licenseModalBody.innerHTML =
+      `<div class="emptyState error">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+/*
+ * =========================================================
+ * RESET DISPOSITIVOS
+ * =========================================================
+ */
+
+function confirmResetDevices(license) {
+  openLicenseModal({
+    eyebrow: 'RESET DISPOSITIVOS',
+    title: 'Liberar esta key',
+    body: `
+      <p class="modalText">
+        Se eliminarán todos los celulares vinculados a
+        <strong>${escapeHtml(licenseDisplayKey(license))}</strong>.
+      </p>
+
+      <div class="warningBox">
+        Después del reset, la key podrá vincularse a otro celular.
+        La key no se borra ni se revoca.
+      </div>
+    `,
+    actions: [
+      {
+        label: 'Cancelar',
+        className: 'secondary',
+        onClick: closeLicenseModal
+      },
+      {
+        label: 'RESET DISPOSITIVOS',
+        className: 'dangerAction',
+        onClick: async event => {
+          const btn = event.currentTarget;
+          btn.disabled = true;
+          btn.textContent = 'RESETEANDO...';
+
+          try {
+            const data = await api(
+              `/api/admin/licenses/${license.id}/activations`,
+              {
+                method: 'DELETE'
+              }
+            );
+
+            closeLicenseModal();
+
+            showToast(
+              `${Number(data.removed || 0)} dispositivo(s) liberado(s)`
+            );
+
+            await loadLicenses();
+          } catch (error) {
+            btn.disabled = false;
+            btn.textContent = 'RESET DISPOSITIVOS';
+            showToast(error.message, 'error');
+          }
+        }
+      }
+    ]
+  });
+}
+
+/*
+ * =========================================================
+ * AGREGAR DÍAS
+ * =========================================================
+ */
+
+function showExtendLicense(license) {
+  openLicenseModal({
+    eyebrow: 'EXTENDER LICENCIA',
+    title: licenseDisplayKey(license),
+    body: `
+      <label for="modalExtendDays">
+        Días para agregar
+      </label>
+
+      <input
+        id="modalExtendDays"
+        type="number"
+        min="1"
+        max="36500"
+        step="1"
+        value="7"
+      >
+
+      <p class="fieldHelp">
+        Si la key ya expiró, el nuevo tiempo comienza desde ahora.
+      </p>
+    `,
+    actions: [
+      {
+        label: 'Cancelar',
+        className: 'secondary',
+        onClick: closeLicenseModal
+      },
+      {
+        label: 'AGREGAR DÍAS',
+        className: 'primaryAction',
+        onClick: async event => {
+          const days = Number(
+            document.getElementById('modalExtendDays').value
+          );
+
+          if (
+            !Number.isInteger(days) ||
+            days < 1 ||
+            days > 36500
+          ) {
+            showToast(
+              'Pon una cantidad válida de días',
+              'error'
+            );
+            return;
+          }
+
+          const btn = event.currentTarget;
+          btn.disabled = true;
+
+          try {
+            await api(
+              `/api/admin/licenses/${license.id}/extend`,
+              {
+                method: 'POST',
+                body: JSON.stringify({ days })
+              }
+            );
+
+            closeLicenseModal();
+            showToast(`${days} día(s) agregados`);
+            await loadLicenses();
+          } catch (error) {
+            btn.disabled = false;
+            showToast(error.message, 'error');
+          }
+        }
+      }
+    ]
+  });
+}
+
+/*
+ * =========================================================
+ * EDITAR KEY
+ * =========================================================
+ */
+
+function showEditLicense(license) {
+  openLicenseModal({
+    eyebrow: 'EDITAR LICENCIA',
+    title: licenseDisplayKey(license),
+    body: `
+      <label for="modalLicenseNote">
+        Cliente / nota
+      </label>
+
+      <input
+        id="modalLicenseNote"
+        type="text"
+        maxlength="120"
+        value="${escapeHtml(license.note || '')}"
+      >
+
+      <label for="modalDeviceLimit">
+        Límite de dispositivos
+      </label>
+
+      <input
+        id="modalDeviceLimit"
+        type="number"
+        min="1"
+        max="100"
+        step="1"
+        value="${Number(license.device_limit || 1)}"
+      >
+    `,
+    actions: [
+      {
+        label: 'Cancelar',
+        className: 'secondary',
+        onClick: closeLicenseModal
+      },
+      {
+        label: 'GUARDAR',
+        className: 'primaryAction',
+        onClick: async event => {
+          const note =
+            document
+              .getElementById('modalLicenseNote')
+              .value
+              .trim();
+
+          const deviceLimit = Number(
+            document.getElementById('modalDeviceLimit').value
+          );
+
+          if (
+            !Number.isInteger(deviceLimit) ||
+            deviceLimit < 1 ||
+            deviceLimit > 100
+          ) {
+            showToast(
+              'El límite debe estar entre 1 y 100',
+              'error'
+            );
+            return;
+          }
+
+          const btn = event.currentTarget;
+          btn.disabled = true;
+
+          try {
+            await api(
+              `/api/admin/licenses/${license.id}`,
+              {
+                method: 'PATCH',
+                body: JSON.stringify({
+                  note,
+                  deviceLimit
+                })
+              }
+            );
+
+            closeLicenseModal();
+            showToast('Licencia actualizada');
+            await loadLicenses();
+          } catch (error) {
+            btn.disabled = false;
+            showToast(error.message, 'error');
+          }
+        }
+      }
+    ]
+  });
+}
+
+/*
+ * =========================================================
+ * REVOCAR / REACTIVAR
+ * =========================================================
+ */
+
+function confirmRevoke(license) {
+  openLicenseModal({
+    eyebrow: 'REVOCAR',
+    title: 'Desactivar esta key',
+    body: `
+      <p class="modalText">
+        La key
+        <strong>${escapeHtml(licenseDisplayKey(license))}</strong>
+        dejará de funcionar, pero seguirá guardada y podrás reactivarla.
+      </p>
+    `,
+    actions: [
+      {
+        label: 'Cancelar',
+        className: 'secondary',
+        onClick: closeLicenseModal
+      },
+      {
+        label: 'REVOCAR',
+        className: 'dangerAction',
+        onClick: async event => {
+          const btn = event.currentTarget;
+          btn.disabled = true;
+
+          try {
+            await api(
+              `/api/admin/licenses/${license.id}/revoke`,
+              {
+                method: 'POST'
+              }
+            );
+
+            closeLicenseModal();
+            showToast('Key revocada');
+            await loadLicenses();
+          } catch (error) {
+            btn.disabled = false;
+            showToast(error.message, 'error');
+          }
+        }
+      }
+    ]
+  });
+}
+
+async function reactivateLicense(license) {
+  try {
+    await api(
+      `/api/admin/licenses/${license.id}/reactivate`,
+      {
+        method: 'POST'
+      }
+    );
+
+    showToast('Key reactivada');
+    await loadLicenses();
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+/*
+ * =========================================================
+ * BORRAR KEY
+ * =========================================================
+ */
+
+function confirmDeleteLicense(license) {
+  openLicenseModal({
+    eyebrow: 'BORRAR DEFINITIVAMENTE',
+    title: 'Eliminar key',
+    body: `
+      <p class="modalText">
+        Vas a borrar
+        <strong>${escapeHtml(licenseDisplayKey(license))}</strong>
+        y todos sus dispositivos vinculados.
+      </p>
+
+      <div class="dangerBox">
+        Esta acción no se puede deshacer.
+      </div>
+    `,
+    actions: [
+      {
+        label: 'Cancelar',
+        className: 'secondary',
+        onClick: closeLicenseModal
+      },
+      {
+        label: 'BORRAR KEY',
+        className: 'dangerAction',
+        onClick: async event => {
+          const btn = event.currentTarget;
+          btn.disabled = true;
+          btn.textContent = 'BORRANDO...';
+
+          try {
+            await api(
+              `/api/admin/licenses/${license.id}`,
+              {
+                method: 'DELETE'
+              }
+            );
+
+            closeLicenseModal();
+            showToast('Key borrada definitivamente');
+            await loadLicenses();
+          } catch (error) {
+            btn.disabled = false;
+            btn.textContent = 'BORRAR KEY';
+            showToast(error.message, 'error');
+          }
+        }
+      }
+    ]
+  });
+}
+
+updateCreateSummary();
 
 /*
  * =========================================================
@@ -1025,6 +1871,173 @@ newOptionButton.addEventListener(
     openOptionForm();
   }
 );
+
+
+/*
+ * =========================================================
+ * ARCHIVOS ORIGINALES PARA DESACTIVAR
+ * =========================================================
+ */
+
+newOriginalButton.addEventListener('click', () => {
+  originalFormError.textContent = '';
+  originalFormWrap.classList.remove('hidden');
+  originalFormWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+cancelOriginalButton.addEventListener('click', () => {
+  originalForm.reset();
+  originalFormError.textContent = '';
+  originalFormWrap.classList.add('hidden');
+});
+
+originalForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  originalFormError.textContent = '';
+
+  const files = Array.from(originalFiles.files || []);
+  const route = originalRoute.value.trim();
+  const game = originalGame.value;
+
+  if (!files.length) {
+    originalFormError.textContent = 'Selecciona al menos un archivo.';
+    return;
+  }
+
+  const submitButton = originalForm.querySelector('button[type="submit"]');
+  const oldText = submitButton.textContent;
+  submitButton.disabled = true;
+  submitButton.textContent = `Subiendo 0/${files.length}...`;
+
+  try {
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+
+      if (file.size > 32 * 1024 * 1024) {
+        throw new Error(`${file.name} supera 32 MB.`);
+      }
+
+      submitButton.textContent = `Subiendo ${i + 1}/${files.length}...`;
+      await uploadOriginalFile({ game, route, file, sortOrder: i });
+    }
+
+    showToast(
+      files.length === 1
+        ? 'Archivo original guardado'
+        : `${files.length} archivos originales guardados`
+    );
+
+    originalForm.reset();
+    originalFormWrap.classList.add('hidden');
+    await loadOriginalFiles();
+  } catch (error) {
+    originalFormError.textContent = error.message;
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = oldText;
+  }
+});
+
+async function uploadOriginalFile({ game, route, file, sortOrder }) {
+  const response = await fetch('/api/admin/original-files', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/octet-stream',
+      'X-Game': game,
+      'X-Route': route,
+      'X-File-Name': file.name,
+      'X-File-Mime': file.type || 'application/octet-stream',
+      'X-Sort-Order': String(sortOrder || 0)
+    },
+    body: file
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (response.status === 401) {
+    logout();
+    throw new Error('Sesión expirada');
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || 'No se pudo subir el archivo original.');
+  }
+
+  return data;
+}
+
+async function loadOriginalFiles() {
+  try {
+    const data = await api('/api/admin/original-files');
+    originalFilesCache = data.originals || [];
+    renderOriginalFiles();
+  } catch (error) {
+    originalFilesWrap.innerHTML =
+      `<div class="emptyState error">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function renderOriginalFiles() {
+  if (!originalFilesCache.length) {
+    originalFilesWrap.innerHTML = `
+      <div class="emptyState compactEmpty">
+        Todavía no hay archivos originales.
+      </div>
+    `;
+    return;
+  }
+
+  originalFilesWrap.innerHTML = originalFilesCache.map(item => `
+    <div class="originalFileItem">
+      <div class="originalFileMain">
+        <strong>${escapeHtml(item.fileName || 'Archivo')}</strong>
+        <span>${escapeHtml(gameLabel(item.game))}</span>
+        <code>${escapeHtml(item.route || '')}</code>
+      </div>
+      <div class="originalFileSide">
+        <span>${formatBytes(item.fileSize || 0)}</span>
+        <button
+          type="button"
+          class="small danger"
+          data-original-delete="${item.id}"
+        >
+          Eliminar
+        </button>
+      </div>
+    </div>
+  `).join('');
+
+  originalFilesWrap
+    .querySelectorAll('[data-original-delete]')
+    .forEach(button => {
+      button.addEventListener('click', async () => {
+        const id = Number(button.dataset.originalDelete);
+        const item = originalFilesCache.find(x => Number(x.id) === id);
+        if (!item) return;
+
+        const confirmed = confirm(
+          `¿Eliminar el original "${item.fileName}"?`
+        );
+        if (!confirmed) return;
+
+        try {
+          await api(`/api/admin/original-files/${id}`, { method: 'DELETE' });
+          await loadOriginalFiles();
+          showToast('Archivo original eliminado');
+        } catch (error) {
+          showToast(error.message, 'error');
+        }
+      });
+    });
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 
 /*
@@ -1127,14 +2140,16 @@ optionForm.addEventListener(
          * un archivo, subirlo.
          */
 
-        if (
-          optionFile.files.length > 0 &&
-          created.option
-        ) {
+        if (created.option) {
 
-          await uploadOptionFile(
-            created.option.id
-          );
+          if (
+            optionFile.files.length > 0
+          ) {
+
+            await uploadOptionFile(
+              created.option.id
+            );
+          }
         }
       }
 
@@ -1265,6 +2280,7 @@ function openOptionForm(
 
   optionFile.value =
     '';
+
 
   if (option) {
 
@@ -1545,14 +2561,14 @@ function renderOptions() {
 
                 <span>
                   <strong>
-                    Archivo:
+                    ACTIVAR:
                   </strong>
 
                   ${
                     option.hasFile
                       ? escapeHtml(
                           option.fileName ||
-                          'Archivo'
+                          'Archivo modificado'
                         )
                       : 'Sin archivo'
                   }
