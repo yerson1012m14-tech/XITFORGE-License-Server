@@ -284,6 +284,11 @@ const optionGame =
     'optionGame'
   );
 
+const optionCategory =
+  document.getElementById(
+    'optionCategory'
+  );
+
 const optionRoute =
   document.getElementById(
     'optionRoute'
@@ -2085,6 +2090,9 @@ optionForm.addEventListener(
         game:
           optionGame.value,
 
+        category:
+          optionCategory.value,
+
         route:
           optionRoute.value.trim(),
 
@@ -2300,6 +2308,10 @@ function openOptionForm(
       option.game ||
       'freefire_normal';
 
+    optionCategory.value =
+      option.category ||
+      'holograma';
+
     optionRoute.value =
       option.route || '';
 
@@ -2322,6 +2334,9 @@ function openOptionForm(
 
     optionGame.value =
       'freefire_normal';
+
+    optionCategory.value =
+      'holograma';
 
     optionRoute.value =
       '';
@@ -2534,6 +2549,14 @@ function renderOptions() {
               <div
                 class="optionMeta"
               >
+
+                <span>
+                  <strong>
+                    Categoría:
+                  </strong>
+
+                  ${option.category === 'aimbot' ? 'Aimbots' : 'Hologramas'}
+                </span>
 
                 <span>
                   <strong>

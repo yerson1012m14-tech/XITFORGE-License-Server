@@ -27,6 +27,16 @@ function normalizeGame(value) {
   return null;
 }
 
+function normalizeCategory(value) {
+  const category = normalizeText(value, 32).toLowerCase();
+
+  if (category === 'holograma' || category === 'aimbot') {
+    return category;
+  }
+
+  return null;
+}
+
 function validateRoute(route) {
   const value = normalizeText(route, 2048);
 
@@ -71,6 +81,9 @@ function registerOptionsRoutes({
           DEFAULT '',
 
         game TEXT NOT NULL,
+
+        category TEXT NOT NULL
+          DEFAULT 'holograma',
 
         route TEXT NOT NULL,
 
@@ -117,6 +130,9 @@ function registerOptionsRoutes({
      * ADD COLUMN IF NOT EXISTS conserva todas las opciones existentes.
      */
     await pool.query(`
+      ALTER TABLE app_options
+        ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'holograma';
+
       ALTER TABLE app_options
         ADD COLUMN IF NOT EXISTS original_file_name TEXT;
 
@@ -231,6 +247,7 @@ function registerOptionsRoutes({
               name,
               description,
               game,
+              category,
               route,
               file_name,
               mime_type,
@@ -253,6 +270,7 @@ function registerOptionsRoutes({
             name: row.name,
             description: row.description,
             game: row.game,
+            category: row.category || 'holograma',
             bundleId: GAME_MAP[row.game],
             route: row.route,
             fileName: row.file_name,
@@ -311,6 +329,11 @@ function registerOptionsRoutes({
             req.body.game
           );
 
+        const category =
+          normalizeCategory(
+            req.body.category
+          );
+
         const route =
           validateRoute(
             req.body.route
@@ -349,6 +372,17 @@ function registerOptionsRoutes({
             });
         }
 
+        if (!category) {
+
+          return res
+            .status(400)
+            .json({
+              ok: false,
+              error:
+                'category is invalid'
+            });
+        }
+
         if (!route) {
 
           return res
@@ -371,6 +405,7 @@ function registerOptionsRoutes({
                   name,
                   description,
                   game,
+                  category,
                   route,
                   enabled,
                   sort_order,
@@ -383,16 +418,18 @@ function registerOptionsRoutes({
                   $2,
                   $3,
                   $4,
-                  TRUE,
                   $5,
+                  TRUE,
                   $6,
-                  $6
+                  $7,
+                  $7
                 )
               RETURNING
                 id,
                 name,
                 description,
                 game,
+                category,
                 route,
                 enabled,
                 sort_order,
@@ -403,6 +440,7 @@ function registerOptionsRoutes({
               name,
               description,
               game,
+              category,
               route,
               sortOrder,
               timestamp
@@ -429,6 +467,9 @@ function registerOptionsRoutes({
 
               game:
                 row.game,
+
+              category:
+                row.category || 'holograma',
 
               bundleId:
                 GAME_MAP[row.game],
@@ -539,6 +580,11 @@ function registerOptionsRoutes({
             req.body.game
           );
 
+        const category =
+          normalizeCategory(
+            req.body.category
+          );
+
         const route =
           validateRoute(
             req.body.route
@@ -558,6 +604,7 @@ function registerOptionsRoutes({
         if (
           !name ||
           !game ||
+          !category ||
           !route
         ) {
 
@@ -578,15 +625,17 @@ function registerOptionsRoutes({
                 name = $1,
                 description = $2,
                 game = $3,
-                route = $4,
-                sort_order = $5,
-                updated_at = $6
-              WHERE id = $7
+                category = $4,
+                route = $5,
+                sort_order = $6,
+                updated_at = $7
+              WHERE id = $8
               RETURNING
                 id,
                 name,
                 description,
                 game,
+                category,
                 route,
                 enabled,
                 sort_order,
@@ -596,6 +645,7 @@ function registerOptionsRoutes({
               name,
               description,
               game,
+              category,
               route,
               sortOrder,
               new Date().toISOString(),
@@ -634,6 +684,9 @@ function registerOptionsRoutes({
 
             game:
               row.game,
+
+            category:
+              row.category || 'holograma',
 
             bundleId:
               GAME_MAP[row.game],
@@ -1348,7 +1401,7 @@ function registerOptionsRoutes({
 
         const result = await pool.query(`
           SELECT
-            id, name, description, game, route, file_name, file_size, updated_at
+            id, name, description, game, category, route, file_name, file_size, updated_at
           FROM app_options
           WHERE game = $1
             AND enabled = TRUE
@@ -1364,6 +1417,7 @@ function registerOptionsRoutes({
             name: row.name,
             description: row.description,
             game: row.game,
+            category: row.category || 'holograma',
             bundleId: GAME_MAP[row.game],
             route: row.route,
             fileName: row.file_name,
