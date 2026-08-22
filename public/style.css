@@ -903,3 +903,141 @@ th {
   }
 
 }
+
+/* =========================================================
+   CONTROL DE VERSIÓN
+   ========================================================= */
+
+.versionCard {
+  max-width:
+    780px;
+
+  margin:
+    0 auto;
+}
+
+.versionColumns {
+  display:
+    grid;
+
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+
+  gap:
+    16px;
+}
+
+.toggleRow {
+  display:
+    flex;
+
+  align-items:
+    flex-start;
+
+  gap:
+    12px;
+
+  margin-top:
+    22px;
+
+  padding:
+    16px;
+
+  border:
+    1px solid #262626;
+
+  border-radius:
+    14px;
+
+  background:
+    #0b0b0b;
+
+  cursor:
+    pointer;
+}
+
+.toggleRow input[type="checkbox"] {
+  width:
+    20px;
+
+  height:
+    20px;
+
+  margin:
+    1px 0 0;
+
+  flex:
+    0 0 auto;
+
+  accent-color:
+    #f0f0f0;
+}
+
+.toggleRow strong {
+  display:
+    block;
+
+  color:
+    #f3f3f3;
+}
+
+.toggleRow small {
+  display:
+    block;
+
+  margin-top:
+    5px;
+
+  color:
+    #777;
+
+  line-height:
+    1.45;
+}
+
+.versionPreview {
+  margin-top:
+    18px;
+
+  padding:
+    14px 16px;
+
+  border:
+    1px solid #242424;
+
+  border-radius:
+    12px;
+
+  background:
+    #0a0a0a;
+}
+
+.versionPreview code {
+  display:
+    block;
+
+  margin-top:
+    7px;
+
+  color:
+    #f0f0f0;
+
+  white-space:
+    normal;
+}
+
+.successMessage {
+  min-height:
+    20px;
+
+  color:
+    #8ff0a8;
+}
+
+@media (max-width: 700px) {
+
+  .versionColumns {
+    grid-template-columns:
+      1fr;
+  }
+}

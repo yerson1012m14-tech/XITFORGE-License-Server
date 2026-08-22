@@ -51,6 +51,11 @@ const optionsTab =
     'optionsTab'
   );
 
+const versionTab =
+  document.getElementById(
+    'versionTab'
+  );
+
 const licensesView =
   document.getElementById(
     'licensesView'
@@ -59,6 +64,11 @@ const licensesView =
 const optionsView =
   document.getElementById(
     'optionsView'
+  );
+
+const versionView =
+  document.getElementById(
+    'versionView'
   );
 
 
@@ -183,6 +193,63 @@ const optionSortOrder =
 const optionsWrap =
   document.getElementById(
     'optionsWrap'
+  );
+
+
+/*
+ * =========================================================
+ * CONTROL DE VERSIÓN
+ * =========================================================
+ */
+
+const versionForm =
+  document.getElementById(
+    'versionForm'
+  );
+
+const latestVersion =
+  document.getElementById(
+    'latestVersion'
+  );
+
+const minimumVersion =
+  document.getElementById(
+    'minimumVersion'
+  );
+
+const downloadUrl =
+  document.getElementById(
+    'downloadUrl'
+  );
+
+const updateMessage =
+  document.getElementById(
+    'updateMessage'
+  );
+
+const forceUpdate =
+  document.getElementById(
+    'forceUpdate'
+  );
+
+const versionBadge =
+  document.getElementById(
+    'versionBadge'
+  );
+
+const versionExample =
+  document.getElementById(
+    'versionExample'
+  );
+
+const versionFormError =
+  document.getElementById(
+    'versionFormError'
+  );
+
+const versionSaved =
+  document.getElementById(
+    'versionSaved'
   );
 
 
@@ -394,6 +461,11 @@ optionsTab.addEventListener(
   showOptionsTab
 );
 
+versionTab.addEventListener(
+  'click',
+  showVersionTab
+);
+
 
 function showLicensesTab() {
 
@@ -405,11 +477,19 @@ function showLicensesTab() {
     'active'
   );
 
+  versionTab.classList.remove(
+    'active'
+  );
+
   licensesView.classList.remove(
     'hidden'
   );
 
   optionsView.classList.add(
+    'hidden'
+  );
+
+  versionView.classList.add(
     'hidden'
   );
 
@@ -427,6 +507,10 @@ function showOptionsTab() {
     'active'
   );
 
+  versionTab.classList.remove(
+    'active'
+  );
+
   optionsView.classList.remove(
     'hidden'
   );
@@ -435,7 +519,41 @@ function showOptionsTab() {
     'hidden'
   );
 
+  versionView.classList.add(
+    'hidden'
+  );
+
   loadOptions();
+}
+
+
+function showVersionTab() {
+
+  versionTab.classList.add(
+    'active'
+  );
+
+  licensesTab.classList.remove(
+    'active'
+  );
+
+  optionsTab.classList.remove(
+    'active'
+  );
+
+  versionView.classList.remove(
+    'hidden'
+  );
+
+  licensesView.classList.add(
+    'hidden'
+  );
+
+  optionsView.classList.add(
+    'hidden'
+  );
+
+  loadAppVersion();
 }
 
 
@@ -1602,6 +1720,211 @@ async function handleOptionAction(
     );
   }
 }
+
+
+/*
+ * =========================================================
+ * CONTROL DE VERSIÓN
+ * =========================================================
+ */
+
+async function loadAppVersion() {
+
+  versionFormError.textContent =
+    '';
+
+  versionSaved.textContent =
+    '';
+
+  versionBadge.textContent =
+    'Cargando';
+
+  try {
+
+    const data =
+      await api(
+        '/api/admin/app-version'
+      );
+
+    latestVersion.value =
+      data.latestVersion || '1.0.0';
+
+    minimumVersion.value =
+      data.minimumVersion || '1.0.0';
+
+    downloadUrl.value =
+      data.downloadUrl || '';
+
+    updateMessage.value =
+      data.message || '';
+
+    forceUpdate.checked =
+      Boolean(
+        data.forceUpdate
+      );
+
+    versionBadge.textContent =
+      forceUpdate.checked
+        ? 'OBLIGATORIA'
+        : 'OPCIONAL';
+
+    versionBadge.classList.toggle(
+      'active',
+      forceUpdate.checked
+    );
+
+    versionBadge.classList.toggle(
+      'revoked',
+      !forceUpdate.checked
+    );
+
+    updateVersionExample();
+
+  } catch (error) {
+
+    versionBadge.textContent =
+      'ERROR';
+
+    versionBadge.classList.remove(
+      'active'
+    );
+
+    versionBadge.classList.add(
+      'revoked'
+    );
+
+    versionFormError.textContent =
+      error.message;
+  }
+}
+
+
+function updateVersionExample() {
+
+  const minimum =
+    minimumVersion.value
+      .trim() || '1.0.0';
+
+  const latest =
+    latestVersion.value
+      .trim() || '1.0.0';
+
+  if (forceUpdate.checked) {
+
+    versionExample.textContent =
+      `Menor que ${minimum} → BLOQUEADO · ${latest} = última versión`;
+
+  } else {
+
+    versionExample.textContent =
+      `Actualización obligatoria desactivada · ${latest} = última versión`;
+  }
+}
+
+
+[
+  latestVersion,
+  minimumVersion
+].forEach(
+  input => {
+
+    input.addEventListener(
+      'input',
+      updateVersionExample
+    );
+  }
+);
+
+forceUpdate.addEventListener(
+  'change',
+  updateVersionExample
+);
+
+
+versionForm.addEventListener(
+  'submit',
+  async event => {
+
+    event.preventDefault();
+
+    versionFormError.textContent =
+      '';
+
+    versionSaved.textContent =
+      '';
+
+    try {
+
+      const data =
+        await api(
+          '/api/admin/app-version',
+          {
+            method: 'PUT',
+
+            body:
+              JSON.stringify({
+                latestVersion:
+                  latestVersion.value.trim(),
+
+                minimumVersion:
+                  minimumVersion.value.trim(),
+
+                forceUpdate:
+                  forceUpdate.checked,
+
+                downloadUrl:
+                  downloadUrl.value.trim(),
+
+                message:
+                  updateMessage.value.trim()
+              })
+          }
+        );
+
+      latestVersion.value =
+        data.latestVersion;
+
+      minimumVersion.value =
+        data.minimumVersion;
+
+      downloadUrl.value =
+        data.downloadUrl || '';
+
+      updateMessage.value =
+        data.message || '';
+
+      forceUpdate.checked =
+        Boolean(
+          data.forceUpdate
+        );
+
+      versionBadge.textContent =
+        forceUpdate.checked
+          ? 'OBLIGATORIA'
+          : 'OPCIONAL';
+
+      versionBadge.classList.toggle(
+        'active',
+        forceUpdate.checked
+      );
+
+      versionBadge.classList.toggle(
+        'revoked',
+        !forceUpdate.checked
+      );
+
+      versionSaved.textContent =
+        'Guardado correctamente.';
+
+      updateVersionExample();
+
+    } catch (error) {
+
+      versionFormError.textContent =
+        error.message;
+    }
+  }
+);
 
 
 /*

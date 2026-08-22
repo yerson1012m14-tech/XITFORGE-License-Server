@@ -104,6 +104,14 @@
           Opciones
         </button>
 
+        <button
+          id="versionTab"
+          class="tabButton"
+          type="button"
+        >
+          Versión
+        </button>
+
       </nav>
 
 
@@ -461,6 +469,181 @@
           </div>
 
           <div id="optionsWrap"></div>
+
+        </section>
+
+      </section>
+
+
+      <!-- ===================================================
+           CONTROL DE VERSIÓN DE LA IPA
+           =================================================== -->
+
+      <section
+        id="versionView"
+        class="panelView hidden"
+      >
+
+        <div class="optionsHeader">
+
+          <div>
+
+            <h2>
+              Control de versión
+            </h2>
+
+            <p class="muted">
+              Decide qué versión de XITFORGE puede entrar.
+            </p>
+
+          </div>
+
+          <span
+            id="versionBadge"
+            class="badge active"
+          >
+            Cargando
+          </span>
+
+        </div>
+
+
+        <section class="card versionCard">
+
+          <form id="versionForm">
+
+            <div class="versionColumns">
+
+              <div>
+
+                <label for="latestVersion">
+                  Última versión
+                </label>
+
+                <input
+                  id="latestVersion"
+                  type="text"
+                  inputmode="decimal"
+                  placeholder="1.0.0"
+                  autocomplete="off"
+                  required
+                >
+
+                <p class="fieldHelp">
+                  La versión más nueva que publicaste.
+                </p>
+
+              </div>
+
+
+              <div>
+
+                <label for="minimumVersion">
+                  Versión mínima permitida
+                </label>
+
+                <input
+                  id="minimumVersion"
+                  type="text"
+                  inputmode="decimal"
+                  placeholder="1.0.0"
+                  autocomplete="off"
+                  required
+                >
+
+                <p class="fieldHelp">
+                  Todo lo que sea menor quedará bloqueado si activas la actualización obligatoria.
+                </p>
+
+              </div>
+
+            </div>
+
+
+            <label for="downloadUrl">
+              Link de descarga de la nueva IPA
+            </label>
+
+            <input
+              id="downloadUrl"
+              type="url"
+              placeholder="https://tu-pagina.com/XITFORGE.ipa"
+              autocomplete="off"
+            >
+
+
+            <label for="updateMessage">
+              Mensaje que verá el usuario
+            </label>
+
+            <textarea
+              id="updateMessage"
+              maxlength="500"
+              rows="4"
+              placeholder="Esta versión ya no está disponible. Descarga la nueva versión para continuar."
+            ></textarea>
+
+
+            <label
+              class="toggleRow"
+              for="forceUpdate"
+            >
+
+              <input
+                id="forceUpdate"
+                type="checkbox"
+              >
+
+              <span>
+
+                <strong>
+                  Actualización obligatoria
+                </strong>
+
+                <small>
+                  Si está activada, las versiones menores a la mínima no podrán continuar.
+                </small>
+
+              </span>
+
+            </label>
+
+
+            <div class="versionPreview">
+
+              <div class="muted">
+                Ejemplo
+              </div>
+
+              <code id="versionExample">
+                1.0.0 → permitido
+              </code>
+
+            </div>
+
+
+            <div class="formActions">
+
+              <button
+                id="saveVersionButton"
+                type="submit"
+              >
+                Guardar versión
+              </button>
+
+            </div>
+
+            <p
+              id="versionFormError"
+              class="error"
+            ></p>
+
+            <p
+              id="versionSaved"
+              class="successMessage"
+            ></p>
+
+          </form>
 
         </section>
 

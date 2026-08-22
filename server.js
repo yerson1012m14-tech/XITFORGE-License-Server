@@ -108,6 +108,52 @@ async function initializeDatabase() {
     `);
 
     /*
+     * CONTROL DE VERSIÓN DE LA IPA
+     *
+     * Solo existe una fila (id = 1).
+     * Desde el panel se puede cambiar la última versión,
+     * la versión mínima permitida y el enlace de descarga.
+     */
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_version_config (
+        id SMALLINT PRIMARY KEY,
+        latest_version TEXT NOT NULL,
+        minimum_version TEXT NOT NULL,
+        force_update BOOLEAN NOT NULL DEFAULT TRUE,
+        download_url TEXT NOT NULL DEFAULT '',
+        update_message TEXT NOT NULL DEFAULT
+          'Esta versión de XITFORGE ya no está disponible. Descarga la nueva versión para continuar.',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT app_version_single_row CHECK (id = 1)
+      );
+    `);
+
+    await client.query(
+      `
+        INSERT INTO app_version_config (
+          id,
+          latest_version,
+          minimum_version,
+          force_update,
+          download_url,
+          update_message,
+          updated_at
+        )
+        VALUES (
+          1,
+          '1.0.0',
+          '1.0.0',
+          TRUE,
+          '',
+          'Esta versión de XITFORGE ya no está disponible. Descarga la nueva versión para continuar.',
+          NOW()
+        )
+        ON CONFLICT (id) DO NOTHING;
+      `
+    );
+
+    /*
      * INDICES DE LICENCIAS
      */
 
@@ -219,6 +265,133 @@ function isExpired(expiresAt) {
     Date.now() >=
       new Date(expiresAt).getTime()
   );
+}
+
+
+/*
+ * ---------------------------------------------------------
+ * APP VERSION HELPERS
+ * ---------------------------------------------------------
+ *
+ * XITFORGE usa versiones simples:
+ *
+ *   1.0.0
+ *   1.0.1
+ *   1.2.0
+ *   2.0.0
+ *
+ * Se comparan numéricamente, no como texto.
+ * ---------------------------------------------------------
+ */
+
+function parseAppVersion(value) {
+
+  const version =
+    String(value || '')
+      .trim();
+
+  if (
+    !/^\d+\.\d+\.\d+$/
+      .test(version)
+  ) {
+    return null;
+  }
+
+  const parts =
+    version
+      .split('.')
+      .map(Number);
+
+  if (
+    parts.some(
+      part =>
+        !Number.isSafeInteger(part) ||
+        part < 0 ||
+        part > 999999
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    version,
+    parts
+  };
+}
+
+function compareAppVersions(
+  left,
+  right
+) {
+
+  const a =
+    parseAppVersion(left);
+
+  const b =
+    parseAppVersion(right);
+
+  if (!a || !b) {
+    return null;
+  }
+
+  for (
+    let i = 0;
+    i < 3;
+    i++
+  ) {
+
+    if (
+      a.parts[i] <
+      b.parts[i]
+    ) {
+      return -1;
+    }
+
+    if (
+      a.parts[i] >
+      b.parts[i]
+    ) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+function normalizeDownloadUrl(
+  value
+) {
+
+  const url =
+    String(value || '')
+      .trim();
+
+  if (!url) {
+    return '';
+  }
+
+  if (url.length > 2048) {
+    return null;
+  }
+
+  try {
+
+    const parsed =
+      new URL(url);
+
+    if (
+      parsed.protocol !== 'https:' &&
+      parsed.protocol !== 'http:'
+    ) {
+      return null;
+    }
+
+    return parsed.toString();
+
+  } catch {
+
+    return null;
+  }
 }
 
 /*
@@ -531,6 +704,394 @@ app.get(
     }
   }
 );
+
+/*
+ * ---------------------------------------------------------
+ * APP VERSION
+ * ---------------------------------------------------------
+ *
+ * Endpoint público que consulta la IPA:
+ *
+ *   GET /api/app/version
+ *
+ * Opcionalmente puede mandar:
+ *
+ *   GET /api/app/version?current=1.0.0
+ *
+ * y el servidor devuelve también:
+ *
+ *   updateAvailable
+ *   blocked
+ *
+ * La configuración solo se cambia desde el panel admin.
+ * ---------------------------------------------------------
+ */
+
+app.get(
+  '/api/app/version',
+  rateLimit({
+    windowMs: 60_000,
+    max: 120
+  }),
+  async (req, res) => {
+
+    try {
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+              latest_version,
+              minimum_version,
+              force_update,
+              download_url,
+              update_message,
+              updated_at
+            FROM app_version_config
+            WHERE id = 1
+            LIMIT 1
+          `
+        );
+
+      const config =
+        result.rows[0];
+
+      if (!config) {
+
+        return res
+          .status(503)
+          .json({
+            ok: false,
+            error:
+              'Version configuration unavailable'
+          });
+      }
+
+      const currentRaw =
+        String(
+          req.query.current || ''
+        )
+          .trim();
+
+      let updateAvailable =
+        null;
+
+      let blocked =
+        null;
+
+      if (currentRaw) {
+
+        const current =
+          parseAppVersion(
+            currentRaw
+          );
+
+        if (!current) {
+
+          return res
+            .status(400)
+            .json({
+              ok: false,
+              error:
+                'Invalid current version. Use x.y.z, for example 1.0.0'
+            });
+        }
+
+        const latestComparison =
+          compareAppVersions(
+            current.version,
+            config.latest_version
+          );
+
+        const minimumComparison =
+          compareAppVersions(
+            current.version,
+            config.minimum_version
+          );
+
+        updateAvailable =
+          latestComparison < 0;
+
+        blocked =
+          Boolean(
+            config.force_update &&
+            minimumComparison < 0
+          );
+      }
+
+      res.json({
+        ok: true,
+        latestVersion:
+          config.latest_version,
+        minimumVersion:
+          config.minimum_version,
+        forceUpdate:
+          Boolean(
+            config.force_update
+          ),
+        downloadUrl:
+          config.download_url || '',
+        message:
+          config.update_message || '',
+        updateAvailable,
+        blocked,
+        updatedAt:
+          config.updated_at,
+        serverTime:
+          nowIso()
+      });
+
+    } catch (error) {
+
+      console.error(
+        'App version check error:',
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          ok: false,
+          error:
+            'Database error'
+        });
+    }
+  }
+);
+
+
+/*
+ * ---------------------------------------------------------
+ * ADMIN APP VERSION
+ * ---------------------------------------------------------
+ */
+
+app.get(
+  '/api/admin/app-version',
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+              latest_version,
+              minimum_version,
+              force_update,
+              download_url,
+              update_message,
+              updated_at
+            FROM app_version_config
+            WHERE id = 1
+            LIMIT 1
+          `
+        );
+
+      const config =
+        result.rows[0];
+
+      if (!config) {
+
+        return res
+          .status(404)
+          .json({
+            ok: false,
+            error:
+              'Version configuration not found'
+          });
+      }
+
+      res.json({
+        ok: true,
+        latestVersion:
+          config.latest_version,
+        minimumVersion:
+          config.minimum_version,
+        forceUpdate:
+          Boolean(
+            config.force_update
+          ),
+        downloadUrl:
+          config.download_url || '',
+        message:
+          config.update_message || '',
+        updatedAt:
+          config.updated_at
+      });
+
+    } catch (error) {
+
+      console.error(
+        'Admin app version read error:',
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          ok: false,
+          error:
+            'Database error'
+        });
+    }
+  }
+);
+
+
+app.put(
+  '/api/admin/app-version',
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const latest =
+        parseAppVersion(
+          req.body.latestVersion
+        );
+
+      const minimum =
+        parseAppVersion(
+          req.body.minimumVersion
+        );
+
+      if (!latest || !minimum) {
+
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              'Las versiones deben usar el formato x.y.z, por ejemplo 1.0.1'
+          });
+      }
+
+      if (
+        compareAppVersions(
+          minimum.version,
+          latest.version
+        ) > 0
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              'La versión mínima no puede ser mayor que la última versión'
+          });
+      }
+
+      const forceUpdate =
+        req.body.forceUpdate === true;
+
+      const downloadUrl =
+        normalizeDownloadUrl(
+          req.body.downloadUrl
+        );
+
+      if (downloadUrl === null) {
+
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              'El enlace de descarga debe ser http:// o https://'
+          });
+      }
+
+      const message =
+        String(
+          req.body.message || ''
+        )
+          .trim();
+
+      if (message.length > 500) {
+
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              'El mensaje no puede superar 500 caracteres'
+          });
+      }
+
+      const finalMessage =
+        message ||
+        'Esta versión de XITFORGE ya no está disponible. Descarga la nueva versión para continuar.';
+
+      const result =
+        await pool.query(
+          `
+            UPDATE app_version_config
+            SET
+              latest_version = $1,
+              minimum_version = $2,
+              force_update = $3,
+              download_url = $4,
+              update_message = $5,
+              updated_at = NOW()
+            WHERE id = 1
+            RETURNING
+              latest_version,
+              minimum_version,
+              force_update,
+              download_url,
+              update_message,
+              updated_at
+          `,
+          [
+            latest.version,
+            minimum.version,
+            forceUpdate,
+            downloadUrl,
+            finalMessage
+          ]
+        );
+
+      const config =
+        result.rows[0];
+
+      res.json({
+        ok: true,
+        latestVersion:
+          config.latest_version,
+        minimumVersion:
+          config.minimum_version,
+        forceUpdate:
+          Boolean(
+            config.force_update
+          ),
+        downloadUrl:
+          config.download_url || '',
+        message:
+          config.update_message || '',
+        updatedAt:
+          config.updated_at
+      });
+
+    } catch (error) {
+
+      console.error(
+        'Admin app version update error:',
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          ok: false,
+          error:
+            'Database error'
+        });
+    }
+  }
+);
+
 
 /*
  * ---------------------------------------------------------
@@ -1469,6 +2030,11 @@ async function startServer() {
 
         console.log(
           'XITFORGE App Options API ready.'
+        );
+
+
+        console.log(
+          'XITFORGE App Version API ready.'
         );
 
       }
