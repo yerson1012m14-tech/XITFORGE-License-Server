@@ -951,6 +951,17 @@ function licenseState(license) {
   }
 
   if (
+    license.status === 'new' ||
+    (
+      !license.expires_at &&
+      !license.first_used_at &&
+      Number(license.duration_days) > 0
+    )
+  ) {
+    return 'new';
+  }
+
+  if (
     license.expires_at &&
     Date.now() >= new Date(license.expires_at).getTime()
   ) {
@@ -963,6 +974,10 @@ function licenseState(license) {
 function statusBadge(license) {
   const state = licenseState(license);
 
+  if (state === 'new') {
+    return '<span class="badge">SIN ACTIVAR</span>';
+  }
+
   if (state === 'active') {
     return '<span class="badge active">ACTIVA</span>';
   }
@@ -972,6 +987,20 @@ function statusBadge(license) {
   }
 
   return '<span class="badge revoked">REVOCADA</span>';
+}
+
+function licenseExpirationText(license) {
+  if (licenseState(license) === 'new') {
+    const days = Number(license.duration_days || 0);
+
+    if (days > 0) {
+      return `EMPIEZA AL PRIMER USO · ${days} ${days === 1 ? 'DÍA' : 'DÍAS'}`;
+    }
+
+    return 'EMPIEZA AL PRIMER USO';
+  }
+
+  return formatDate(license.expires_at);
 }
 
 function licenseDisplayKey(license) {
@@ -1021,7 +1050,7 @@ function updateStats() {
   for (const license of licensesCache) {
     const state = licenseState(license);
 
-    if (state === 'active') active += 1;
+    if (state === 'active' || state === 'new') active += 1;
     if (state === 'expired') expired += 1;
     if (state === 'revoked') revoked += 1;
 
@@ -1093,7 +1122,7 @@ function renderLicenses() {
 
         <td>
           <div class="expiresText">
-            ${escapeHtml(formatDate(license.expires_at))}
+            ${escapeHtml(licenseExpirationText(license))}
           </div>
         </td>
 
@@ -1237,7 +1266,7 @@ function showManageLicense(license) {
 
         <div>
           <span>Expira</span>
-          <strong>${escapeHtml(formatDate(license.expires_at))}</strong>
+          <strong>${escapeHtml(licenseExpirationText(license))}</strong>
         </div>
       </div>
 

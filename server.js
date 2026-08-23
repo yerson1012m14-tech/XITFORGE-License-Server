@@ -82,8 +82,10 @@ async function initializeDatabase() {
         key_hash TEXT NOT NULL UNIQUE,
         key_prefix TEXT NOT NULL,
         key_last4 TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'active',
+        status TEXT NOT NULL DEFAULT 'new',
         expires_at TIMESTAMPTZ NULL,
+        duration_days INTEGER NULL,
+        first_used_at TIMESTAMPTZ NULL,
         device_limit INTEGER NOT NULL DEFAULT 1,
         note TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMPTZ NOT NULL,
@@ -99,6 +101,12 @@ async function initializeDatabase() {
     await client.query(`
       ALTER TABLE licenses
       ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
+
+      ALTER TABLE licenses
+      ADD COLUMN IF NOT EXISTS duration_days INTEGER NULL;
+
+      ALTER TABLE licenses
+      ADD COLUMN IF NOT EXISTS first_used_at TIMESTAMPTZ NULL;
     `);
 
     /*
@@ -642,6 +650,8 @@ async function getLicenseByHash(
           key_last4,
           status,
           expires_at,
+          duration_days,
+          first_used_at,
           device_limit,
           note,
           created_at,
@@ -655,6 +665,113 @@ async function getLicenseByHash(
 
   return result.rows[0] || null;
 }
+
+async function activateLicenseOnFirstUse(
+  license
+) {
+
+  if (!license) {
+    return license;
+  }
+
+  const durationDays =
+    Number(
+      license.duration_days
+    );
+
+  const mustStart =
+    !license.expires_at &&
+    !license.first_used_at &&
+    Number.isInteger(durationDays) &&
+    durationDays > 0 &&
+    (
+      license.status === 'new' ||
+      license.status === 'active'
+    );
+
+  if (!mustStart) {
+    return license;
+  }
+
+  const timestamp =
+    nowIso();
+
+  const expiresAt =
+    new Date(
+      Date.now() +
+      durationDays *
+        24 *
+        60 *
+        60 *
+        1000
+    ).toISOString();
+
+  /*
+   * Inicio atómico del contador.
+   * Solo la primera validación puede establecer estas fechas.
+   */
+  const activated =
+    await pool.query(
+      `
+        UPDATE licenses
+        SET
+          status = 'active',
+          first_used_at = $1,
+          expires_at = $2,
+          updated_at = $1
+        WHERE id = $3
+          AND expires_at IS NULL
+          AND first_used_at IS NULL
+          AND duration_days IS NOT NULL
+        RETURNING
+          id,
+          key_prefix,
+          key_last4,
+          status,
+          expires_at,
+          duration_days,
+          first_used_at,
+          device_limit,
+          note,
+          created_at,
+          updated_at
+      `,
+      [
+        timestamp,
+        expiresAt,
+        license.id
+      ]
+    );
+
+  if (activated.rows.length > 0) {
+    return activated.rows[0];
+  }
+
+  const refreshed =
+    await pool.query(
+      `
+        SELECT
+          id,
+          key_prefix,
+          key_last4,
+          status,
+          expires_at,
+          duration_days,
+          first_used_at,
+          device_limit,
+          note,
+          created_at,
+          updated_at
+        FROM licenses
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [license.id]
+    );
+
+  return refreshed.rows[0] || license;
+}
+
 
 async function getActivationCount(
   licenseId
@@ -1181,8 +1298,8 @@ app.post(
       }
 
       if (
-        license.status !==
-        'active'
+        license.status !== 'active' &&
+        license.status !== 'new'
       ) {
 
         return res.json({
@@ -1193,9 +1310,14 @@ app.post(
         });
       }
 
+      const activeLicense =
+        await activateLicenseOnFirstUse(
+          license
+        );
+
       if (
         isExpired(
-          license.expires_at
+          activeLicense.expires_at
         )
       ) {
 
@@ -1205,7 +1327,7 @@ app.post(
           reason:
             'expired',
           expiresAt:
-            license.expires_at
+            activeLicense.expires_at
         });
       }
 
@@ -1230,7 +1352,7 @@ app.post(
             LIMIT 1
           `,
           [
-            license.id,
+            activeLicense.id,
             deviceHash
           ]
         );
@@ -1255,9 +1377,9 @@ app.post(
           ok: true,
           valid: true,
           expiresAt:
-            license.expires_at,
+            activeLicense.expires_at,
           keyPrefix:
-            license.key_prefix
+            activeLicense.key_prefix
         });
       }
 
@@ -1268,12 +1390,12 @@ app.post(
 
       const activationCount =
         await getActivationCount(
-          license.id
+          activeLicense.id
         );
 
       if (
         activationCount >=
-        license.device_limit
+        activeLicense.device_limit
       ) {
 
         return res.json({
@@ -1300,7 +1422,7 @@ app.post(
             ($1, $2, $3, $4)
         `,
         [
-          license.id,
+          activeLicense.id,
           deviceHash,
           timestamp,
           timestamp
@@ -1311,9 +1433,9 @@ app.post(
         ok: true,
         valid: true,
         expiresAt:
-          license.expires_at,
+          activeLicense.expires_at,
         keyPrefix:
-          license.key_prefix
+          activeLicense.key_prefix
       });
 
     } catch (error) {
@@ -1423,6 +1545,8 @@ app.get(
               l.key_last4,
               l.status,
               l.expires_at,
+              l.duration_days,
+              l.first_used_at,
               l.device_limit,
               l.note,
               l.created_at,
@@ -1533,15 +1657,11 @@ app.post(
       const timestamp =
         nowIso();
 
+      /*
+       * El tiempo empieza en el primer uso, no al crear la key.
+       */
       const expiresAt =
-        new Date(
-          Date.now() +
-          durationDays *
-            24 *
-            60 *
-            60 *
-            1000
-        ).toISOString();
+        null;
 
       const result =
         await pool.query(
@@ -1553,6 +1673,8 @@ app.post(
                 key_last4,
                 status,
                 expires_at,
+                duration_days,
+                first_used_at,
                 device_limit,
                 note,
                 created_at,
@@ -1563,8 +1685,10 @@ app.post(
                 $1,
                 $2,
                 $3,
-                'active',
+                'new',
+                NULL,
                 $4,
+                NULL,
                 $5,
                 $6,
                 $7,
@@ -1576,7 +1700,7 @@ app.post(
             hashValue(normalized),
             normalized.slice(0, 9),
             normalized.slice(-4),
-            expiresAt,
+            durationDays,
             deviceLimit,
             note,
             timestamp,
@@ -1589,8 +1713,8 @@ app.post(
         .json({
           ok: true,
           key: normalized,
-          status: 'active',
-          expiresAt,
+          status: 'new',
+          expiresAt: null,
           durationDays,
           deviceLimit,
           note,
@@ -1707,7 +1831,10 @@ app.post(
       const result =
         await pool.query(
           `
-            SELECT expires_at
+            SELECT
+              expires_at,
+              duration_days,
+              first_used_at
             FROM licenses
             WHERE id = $1
             LIMIT 1
@@ -1747,7 +1874,14 @@ app.post(
         `
           UPDATE licenses
           SET
-            status = 'active',
+            status =
+              CASE
+                WHEN expires_at IS NULL
+                 AND first_used_at IS NULL
+                 AND duration_days IS NOT NULL
+                THEN 'new'
+                ELSE 'active'
+              END,
             updated_at = $1
           WHERE id = $2
         `,
@@ -1820,7 +1954,10 @@ app.post(
       const result =
         await pool.query(
           `
-            SELECT expires_at
+            SELECT
+              expires_at,
+              duration_days,
+              first_used_at
             FROM licenses
             WHERE id = $1
             LIMIT 1
@@ -1841,8 +1978,49 @@ app.post(
           });
       }
 
+      const row =
+        result.rows[0];
+
+      const neverUsed =
+        !row.expires_at &&
+        !row.first_used_at &&
+        Number.isInteger(
+          Number(row.duration_days)
+        );
+
+      if (neverUsed) {
+
+        const newDurationDays =
+          Number(row.duration_days) +
+          days;
+
+        await pool.query(
+          `
+            UPDATE licenses
+            SET
+              duration_days = $1,
+              updated_at = $2
+            WHERE id = $3
+          `,
+          [
+            newDurationDays,
+            nowIso(),
+            id
+          ]
+        );
+
+        return res.json({
+          ok: true,
+          expiresAt: null,
+          durationDays:
+            newDurationDays,
+          startsOnFirstUse:
+            true
+        });
+      }
+
       const currentExpiration =
-        result.rows[0].expires_at;
+        row.expires_at;
 
       const base =
         currentExpiration &&
@@ -1881,7 +2059,9 @@ app.post(
 
       res.json({
         ok: true,
-        expiresAt
+        expiresAt,
+        startsOnFirstUse:
+          false
       });
 
     } catch (error) {
@@ -1930,7 +2110,7 @@ app.post(
 
       const current = await client.query(`
         SELECT
-          id, status, expires_at, device_limit, note
+          id, status, expires_at, duration_days, first_used_at, device_limit, note
         FROM licenses
         WHERE id = $1
         FOR UPDATE
@@ -1973,7 +2153,7 @@ app.post(
           updated_at = $4
         WHERE id = $5
         RETURNING
-          id, status, expires_at, device_limit, note, updated_at
+          id, status, expires_at, duration_days, first_used_at, device_limit, note, updated_at
       `, [
         keyHash,
         normalized.slice(0, 9),
