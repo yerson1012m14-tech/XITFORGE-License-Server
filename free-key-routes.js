@@ -7,6 +7,7 @@ const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const ATTEMPT_MS = 45 * 60 * 1000;
 const COOKIE = '__Host-xitforge-free';
 const HEX64 = /^[a-f0-9]{64}$/i;
+const MAX_PROOF_LENGTH = 2048;
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const VERIFY_URL = 'https://publisher.linkvertise.com/api/v1/anti_bypassing';
 
@@ -23,7 +24,11 @@ function licenseDurationSeconds(license) {
 async function verifyLinkvertise(hash, token, fetchImpl = globalThis.fetch, report = () => {}) {
   const reject = (reason, details = {}) => { report({ reason, ...details }); return false; };
   if (!hash) return reject('hash_missing');
-  if (!HEX64.test(hash)) return reject('hash_invalid');
+  // The provider's proof is opaque, not necessarily a hexadecimal digest.
+  // Preserve its value, bound request size, and let Linkvertise verify it.
+  if (typeof hash !== 'string' || hash.length > MAX_PROOF_LENGTH || /[\s\u0000-\u001f\u007f]/u.test(hash)) {
+    return reject('hash_invalid', { hashLength: typeof hash === 'string' ? hash.length : null });
+  }
   if (!HEX64.test(token || '')) return reject('token_invalid');
   const url = new URL(VERIFY_URL);
   url.searchParams.set('token', token);
