@@ -791,6 +791,27 @@ async function getActivationCount(
   );
 }
 
+
+async function getLicenseAccessLevel(
+  licenseId
+) {
+
+  const result =
+    await pool.query(
+      `
+        SELECT 1
+        FROM xf_free_claims
+        WHERE license_id = $1
+        LIMIT 1
+      `,
+      [licenseId]
+    );
+
+  return result.rows.length > 0
+    ? 'aimbot_only'
+    : 'premium';
+}
+
 /*
  * ---------------------------------------------------------
  * HEALTH
@@ -1330,6 +1351,11 @@ app.post(
         });
       }
 
+      const accessLevel =
+        await getLicenseAccessLevel(
+          activeLicense.id
+        );
+
       const deviceHash =
         hashValue(deviceId);
 
@@ -1378,7 +1404,8 @@ app.post(
           expiresAt:
             activeLicense.expires_at,
           keyPrefix:
-            activeLicense.key_prefix
+            activeLicense.key_prefix,
+          accessLevel
         });
       }
 
@@ -1434,7 +1461,8 @@ app.post(
         expiresAt:
           activeLicense.expires_at,
         keyPrefix:
-          activeLicense.key_prefix
+          activeLicense.key_prefix,
+        accessLevel
       });
 
     } catch (error) {
