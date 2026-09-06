@@ -169,7 +169,19 @@ function registerFreeKeyRoutes({ app, pool, rateLimit, generateKey, normalizeKey
     return codec.digest(`visitor:${raw}`);
   }
   function network(req) {
-    return codec.digest(`network:${req.ip || req.socket.remoteAddress}`);
+    const cfIp = String(req.get('cf-connecting-ip') || '').trim();
+
+    const forwardedIp = String(req.get('x-forwarded-for') || '')
+      .split(',')[0]
+      .trim();
+
+    const clientIp =
+      cfIp ||
+      forwardedIp ||
+      req.socket.remoteAddress ||
+      'unknown';
+
+    return codec.digest(`network:${clientIp}`);
   }
   function goHome(res, values) {
     const url = new URL(website.href);
