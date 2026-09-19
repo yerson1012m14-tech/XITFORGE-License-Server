@@ -708,3 +708,602 @@
     };
 
 })();
+/*
+ * =========================================================
+ * XITFORGE - ARCHIVOS PARA BORRAR AL DESACTIVAR
+ * =========================================================
+ */
+
+(() => {
+  'use strict';
+
+  const originalCard =
+    document.querySelector(
+      '.originalFilesCard'
+    );
+
+  if (!originalCard) {
+    console.error(
+      'XITFORGE delete rules: originalFilesCard not found.'
+    );
+    return;
+  }
+
+  const section =
+    document.createElement(
+      'section'
+    );
+
+  section.className =
+    'card originalFilesCard';
+
+  section.id =
+    'deleteFilesCard';
+
+  section.innerHTML = `
+    <div class="sectionTitle">
+
+      <div>
+        <h2>
+          Archivos para BORRAR al DESACTIVAR
+        </h2>
+
+        <p class="muted">
+          Configura archivos que XITFORGE debe eliminar del juego
+          cuando el cliente desactive una opción.
+        </p>
+      </div>
+
+      <button
+        id="newDeleteFileButton"
+        type="button"
+      >
+        + Agregar para borrar
+      </button>
+
+    </div>
+
+    <div
+      id="deleteFileFormWrap"
+      class="originalFormWrap hidden"
+    >
+
+      <form id="deleteFileForm">
+
+        <div class="originalFormGrid">
+
+          <div>
+            <label for="deleteFileGame">
+              Juego
+            </label>
+
+            <select
+              id="deleteFileGame"
+              required
+            >
+              <option value="freefire_normal">
+                Free Fire Normal
+              </option>
+
+              <option value="freefire_max">
+                Free Fire MAX
+              </option>
+            </select>
+          </div>
+
+          <div>
+            <label for="deleteFileOption">
+              Opción
+            </label>
+
+            <select
+              id="deleteFileOption"
+              required
+            ></select>
+          </div>
+
+        </div>
+
+        <label for="deleteFileRoute">
+          Ruta
+        </label>
+
+        <input
+          id="deleteFileRoute"
+          type="text"
+          maxlength="2048"
+          placeholder="Ej. Documents/contentcache/..."
+          required
+        >
+
+        <label for="deleteFileName">
+          Nombre exacto del archivo a borrar
+        </label>
+
+        <input
+          id="deleteFileName"
+          type="text"
+          maxlength="255"
+          placeholder="Ej. archivo_extra.bytes"
+          required
+        >
+
+        <p class="fieldHelp">
+          No tienes que subir el archivo. Solo indica la ruta
+          y su nombre exacto. La regla queda vinculada a la opción
+          seleccionada.
+        </p>
+
+        <div
+          class="formActions originalFormActions"
+        >
+          <button type="submit">
+            Guardar para borrar
+          </button>
+
+          <button
+            id="cancelDeleteFileButton"
+            class="secondary"
+            type="button"
+          >
+            Cancelar
+          </button>
+        </div>
+
+        <p
+          id="deleteFileFormError"
+          class="error"
+        ></p>
+
+      </form>
+
+    </div>
+
+    <div id="deleteFilesWrap"></div>
+  `;
+
+  originalCard.insertAdjacentElement(
+    'afterend',
+    section
+  );
+
+
+  const newDeleteFileButton =
+    document.getElementById(
+      'newDeleteFileButton'
+    );
+
+  const deleteFileFormWrap =
+    document.getElementById(
+      'deleteFileFormWrap'
+    );
+
+  const deleteFileForm =
+    document.getElementById(
+      'deleteFileForm'
+    );
+
+  const deleteFileGame =
+    document.getElementById(
+      'deleteFileGame'
+    );
+
+  const deleteFileOption =
+    document.getElementById(
+      'deleteFileOption'
+    );
+
+  const deleteFileRoute =
+    document.getElementById(
+      'deleteFileRoute'
+    );
+
+  const deleteFileName =
+    document.getElementById(
+      'deleteFileName'
+    );
+
+  const cancelDeleteFileButton =
+    document.getElementById(
+      'cancelDeleteFileButton'
+    );
+
+  const deleteFileFormError =
+    document.getElementById(
+      'deleteFileFormError'
+    );
+
+  const deleteFilesWrap =
+    document.getElementById(
+      'deleteFilesWrap'
+    );
+
+
+  let deleteFilesCache =
+    [];
+
+  let deleteOptionsCache =
+    [];
+
+
+  async function loadDeleteOptions() {
+    const data =
+      await api(
+        '/api/admin/options'
+      );
+
+    deleteOptionsCache =
+      data.options || [];
+
+    renderDeleteOptionChoices();
+  }
+
+
+  function renderDeleteOptionChoices() {
+    const game =
+      deleteFileGame.value;
+
+    const items =
+      deleteOptionsCache
+        .filter(
+          option =>
+            option.game === game
+        );
+
+    if (
+      items.length === 0
+    ) {
+      deleteFileOption.innerHTML =
+        `
+          <option value="">
+            No hay opciones para este juego
+          </option>
+        `;
+
+      deleteFileOption.disabled =
+        true;
+
+      return;
+    }
+
+    deleteFileOption.disabled =
+      false;
+
+    deleteFileOption.innerHTML =
+      items
+        .map(
+          option =>
+            `
+              <option
+                value="${Number(option.id)}"
+              >
+                ${escapeHtml(option.name)}
+              </option>
+            `
+        )
+        .join('');
+  }
+
+
+  async function loadDeleteFiles() {
+    try {
+      const data =
+        await api(
+          '/api/admin/delete-files'
+        );
+
+      deleteFilesCache =
+        data.deleteFiles || [];
+
+      renderDeleteFiles();
+
+    } catch (error) {
+      deleteFilesWrap.innerHTML =
+        `
+          <div class="emptyState error">
+            ${escapeHtml(error.message)}
+          </div>
+        `;
+    }
+  }
+
+
+  function renderDeleteFiles() {
+    if (
+      deleteFilesCache.length === 0
+    ) {
+      deleteFilesWrap.innerHTML =
+        `
+          <div class="emptyState compactEmpty">
+            Todavía no hay archivos configurados para borrar.
+          </div>
+        `;
+
+      return;
+    }
+
+    deleteFilesWrap.innerHTML =
+      deleteFilesCache
+        .map(
+          item =>
+            `
+              <div class="originalFileItem">
+
+                <div class="originalFileMain">
+
+                  <strong>
+                    ${escapeHtml(item.fileName)}
+                  </strong>
+
+                  <span>
+                    ${escapeHtml(gameLabel(item.game))}
+                    ·
+                    ${escapeHtml(item.optionName || 'Opción')}
+                  </span>
+
+                  <code>
+                    ${escapeHtml(item.route)}
+                  </code>
+
+                </div>
+
+                <div class="originalFileSide">
+
+                  <span>
+                    Se borrará al DESACTIVAR
+                  </span>
+
+                  <button
+                    type="button"
+                    class="small danger"
+                    data-delete-rule="${Number(item.id)}"
+                  >
+                    Eliminar regla
+                  </button>
+
+                </div>
+
+              </div>
+            `
+        )
+        .join('');
+
+    deleteFilesWrap
+      .querySelectorAll(
+        '[data-delete-rule]'
+      )
+      .forEach(
+        button => {
+          button.addEventListener(
+            'click',
+            async () => {
+              const id =
+                Number(
+                  button.dataset.deleteRule
+                );
+
+              const item =
+                deleteFilesCache.find(
+                  value =>
+                    Number(value.id) === id
+                );
+
+              if (!item) {
+                return;
+              }
+
+              const confirmed =
+                confirm(
+                  `¿Quitar la regla que borra "${item.fileName}" al DESACTIVAR?\n\nEsto solo elimina la regla del panel; no borra nada del teléfono ahora mismo.`
+                );
+
+              if (!confirmed) {
+                return;
+              }
+
+              button.disabled =
+                true;
+
+              try {
+                await api(
+                  `/api/admin/delete-files/${id}`,
+                  {
+                    method: 'DELETE'
+                  }
+                );
+
+                showToast(
+                  'Regla de borrado eliminada'
+                );
+
+                await loadDeleteFiles();
+
+              } catch (error) {
+                button.disabled =
+                  false;
+
+                showToast(
+                  error.message,
+                  'error'
+                );
+              }
+            }
+          );
+        }
+      );
+  }
+
+
+  newDeleteFileButton
+    .addEventListener(
+      'click',
+      async () => {
+        deleteFileFormError
+          .textContent = '';
+
+        deleteFileFormWrap
+          .classList
+          .remove('hidden');
+
+        try {
+          await loadDeleteOptions();
+        } catch (error) {
+          deleteFileFormError
+            .textContent =
+              error.message;
+        }
+
+        deleteFileFormWrap
+          .scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest'
+          });
+      }
+    );
+
+
+  cancelDeleteFileButton
+    .addEventListener(
+      'click',
+      () => {
+        deleteFileForm
+          .reset();
+
+        deleteFileFormError
+          .textContent = '';
+
+        deleteFileFormWrap
+          .classList
+          .add('hidden');
+
+        renderDeleteOptionChoices();
+      }
+    );
+
+
+  deleteFileGame
+    .addEventListener(
+      'change',
+      renderDeleteOptionChoices
+    );
+
+
+  deleteFileForm
+    .addEventListener(
+      'submit',
+      async event => {
+        event.preventDefault();
+
+        deleteFileFormError
+          .textContent = '';
+
+        const optionId =
+          Number(
+            deleteFileOption.value
+          );
+
+        const route =
+          deleteFileRoute
+            .value
+            .trim();
+
+        const fileName =
+          deleteFileName
+            .value
+            .trim();
+
+        if (
+          !Number.isSafeInteger(optionId) ||
+          optionId < 1
+        ) {
+          deleteFileFormError
+            .textContent =
+              'Selecciona una opción.';
+
+          return;
+        }
+
+        const submitButton =
+          deleteFileForm
+            .querySelector(
+              'button[type="submit"]'
+            );
+
+        const oldText =
+          submitButton.textContent;
+
+        submitButton.disabled =
+          true;
+
+        submitButton.textContent =
+          'GUARDANDO...';
+
+        try {
+          await api(
+            '/api/admin/delete-files',
+            {
+              method: 'POST',
+
+              body:
+                JSON.stringify({
+                  optionId,
+                  route,
+                  fileName
+                })
+            }
+          );
+
+          showToast(
+            'Archivo configurado para borrar al DESACTIVAR'
+          );
+
+          deleteFileForm
+            .reset();
+
+          deleteFileFormWrap
+            .classList
+            .add('hidden');
+
+          renderDeleteOptionChoices();
+
+          await loadDeleteFiles();
+
+        } catch (error) {
+          deleteFileFormError
+            .textContent =
+              error.message;
+
+        } finally {
+          submitButton.disabled =
+            false;
+
+          submitButton.textContent =
+            oldText;
+        }
+      }
+    );
+
+
+  /*
+   * Cuando el usuario entra a "Opciones", refrescar también
+   * las reglas de borrado.
+   */
+  optionsTab
+    .addEventListener(
+      'click',
+      () => {
+        loadDeleteFiles();
+        loadDeleteOptions()
+          .catch(() => {});
+      }
+    );
+
+
+  /*
+   * Si el panel ya está abierto, dejar la sección lista.
+   */
+  loadDeleteFiles();
+  loadDeleteOptions()
+    .catch(() => {});
+
+})();

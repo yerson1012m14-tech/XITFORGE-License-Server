@@ -5,6 +5,7 @@ const fs = require('fs');
 const { Pool } = require('pg');
 const { registerOptionsRoutes } = require('./options-routes');
 const { registerTwoFileOptionRoutes } = require('./two-files-routes');
+const { registerDeleteFileRoutes } = require('./delete-files-routes');
 const { registerFreeKeyRoutes, licenseDurationSeconds } = require('./free-key-routes');
 
 const app = express();
@@ -2659,6 +2660,7 @@ app.delete(
 
 let optionsDatabaseReady = null;
 let twoFilesDatabaseReady = null;
+let deleteFilesDatabaseReady = null;
 
 const freeKeysModule = registerFreeKeyRoutes({
   app, pool, rateLimit, generateKey, normalizeKey, hashValue,
@@ -2708,6 +2710,41 @@ try {
 
   console.error(
     'Failed to register app options routes:',
+    error
+  );
+
+  process.exit(1);
+}
+
+try {
+
+  /*
+   * Las reglas de borrado dependen de app_options.
+   * Esperamos la migración de Opciones antes de crear
+   * app_delete_files.
+   */
+  const deleteFilesModule =
+    registerDeleteFileRoutes({
+      app,
+      pool,
+      requireAdmin
+    });
+
+  deleteFilesDatabaseReady =
+    Promise
+      .resolve(
+        optionsDatabaseReady
+      )
+      .then(
+        () =>
+          deleteFilesModule
+            .ensureTable()
+      );
+
+} catch (error) {
+
+  console.error(
+    'Failed to register delete-on-deactivate routes:',
     error
   );
 
@@ -2792,6 +2829,7 @@ async function startServer() {
 
     await optionsDatabaseReady;
     await twoFilesDatabaseReady;
+    await deleteFilesDatabaseReady;
 
     app.listen(
       PORT,
