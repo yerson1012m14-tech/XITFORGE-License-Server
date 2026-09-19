@@ -1,0 +1,34 @@
+XITFORGE - DOS ARCHIVOS POR OPCIÓN
+
+ARCHIVOS DEL ZIP:
+1. server.js
+2. two-files-routes.js
+3. public/app-extra.js
+
+DÓNDE PONERLOS EN XITFORGE-License-Server:
+
+XITFORGE-License-Server/
+├── server.js                         <- REEMPLAZAR
+├── two-files-routes.js               <- NUEVO
+├── options-routes.js                 <- NO TOCAR
+└── public/
+    ├── app.js                        <- NO TOCAR
+    ├── index.html                    <- NO TOCAR
+    └── app-extra.js                  <- NUEVO
+
+QUÉ AGREGA:
+- Archivo 1 para ACTIVAR.
+- Archivo 2 para ACTIVAR (opcional).
+- Puedes crear una opción con 0, 1 o 2 archivos.
+- Editando puedes reemplazar Archivo 1 y/o Archivo 2.
+- Botón "Eliminar archivo 1".
+- Botón "Eliminar archivo 2".
+- "Eliminar opción" sigue borrando la opción completa.
+- Borrar un archivo NO borra la opción.
+- Migración automática de PostgreSQL para el segundo archivo.
+- /api/app/options conserva fileUrl existente y agrega file2Url + files[].
+
+IMPORTANTE:
+El panel y el servidor ya quedan preparados para dos archivos.
+La IPA actual debe actualizarse para descargar/aplicar el segundo archivo;
+clientes viejos seguirán usando Archivo 1 porque fileUrl se conserva.

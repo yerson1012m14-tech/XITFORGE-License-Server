@@ -1,8 +1,10 @@
 const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 const { Pool } = require('pg');
 const { registerOptionsRoutes } = require('./options-routes');
+const { registerTwoFileOptionRoutes } = require('./two-files-routes');
 const { registerFreeKeyRoutes, licenseDurationSeconds } = require('./free-key-routes');
 
 const app = express();
@@ -2656,11 +2658,39 @@ app.delete(
  */
 
 let optionsDatabaseReady = null;
+let twoFilesDatabaseReady = null;
 
 const freeKeysModule = registerFreeKeyRoutes({
   app, pool, rateLimit, generateKey, normalizeKey, hashValue,
   secret: process.env.FREE_KEYS_SECRET || ADMIN_TOKEN_SECRET
 });
+
+try {
+
+  /*
+   * Registrar primero las extensiones de 2 archivos.
+   * Sus GET /api/admin/options y /api/app/options deben quedar
+   * antes que las rutas originales para incluir ambos slots.
+   */
+  const twoFilesModule =
+    registerTwoFileOptionRoutes({
+      app,
+      pool,
+      requireAdmin
+    });
+
+  twoFilesDatabaseReady =
+    twoFilesModule.ensureTable();
+
+} catch (error) {
+
+  console.error(
+    'Failed to register two-file option routes:',
+    error
+  );
+
+  process.exit(1);
+}
 
 try {
 
@@ -2690,6 +2720,49 @@ try {
  * ---------------------------------------------------------
  */
 
+/*
+ * El index.html original se conserva intacto.
+ * Aquí solo se inyecta /app-extra.js después de /app.js.
+ */
+app.get(
+  '/',
+  (req, res, next) => {
+    try {
+      const indexPath =
+        path.join(
+          __dirname,
+          'public',
+          'index.html'
+        );
+
+      let html =
+        fs.readFileSync(
+          indexPath,
+          'utf8'
+        );
+
+      if (
+        !html.includes(
+          '/app-extra.js'
+        )
+      ) {
+        html =
+          html.replace(
+            '</body>',
+            '  <script src="/app-extra.js"></script>\n\n</body>'
+          );
+      }
+
+      res
+        .type('html')
+        .send(html);
+
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 app.use(
   express.static(
     path.join(
@@ -2718,6 +2791,7 @@ async function startServer() {
      */
 
     await optionsDatabaseReady;
+    await twoFilesDatabaseReady;
 
     app.listen(
       PORT,
