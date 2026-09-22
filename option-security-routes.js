@@ -72,7 +72,7 @@ function registerOptionSecurityRoutes({ app, pool, requireAdmin, requirePaidSess
       const option = rows[0];
       res.set('Cache-Control', 'no-store');
       return res.json({
-        ok: true, authorized: true, optionId: option.id,
+        ok: true, authorized: true, optionId: id,
         warnOnActivate: option.category === 'aimbot' && option.warning_enabled,
         licenseExpiresAt: option.license_expires_at
       });
