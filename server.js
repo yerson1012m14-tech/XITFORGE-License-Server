@@ -1545,6 +1545,32 @@ app.post(
   }
 );
 
+
+/* Restore-only authorization for a device that activated this key previously.
+ * This DOES NOT authorize premium content or new activations. */
+app.post('/api/license/cleanup-token', rateLimit({ windowMs: 60_000, max: 12 }),
+  async (req, res) => {
+    try {
+      const key = normalizeKey(req.body && req.body.key);
+      const deviceId = String((req.body && req.body.deviceId) || '').trim();
+      if (!isValidKeyFormat(key) || deviceId.length < 8 || deviceId.length > 256) {
+        return res.status(400).json({ ok: false, error: 'invalid_request' });
+      }
+      const result = await pool.query(
+        'SELECT id FROM licenses WHERE key_hash = $1 LIMIT 1', [hashValue(key)]);
+      if (result.rows.length !== 1) {
+        return res.status(403).json({ ok: false, error: 'cleanup_unavailable' });
+      }
+      const session = await licenseAuth.issueCleanupSession(result.rows[0].id, deviceId);
+      if (!session) return res.status(403).json({ ok: false, error: 'cleanup_unavailable' });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ ok: true, cleanupToken: session.token });
+    } catch (error) {
+      console.error('Cleanup authorization failed:', error);
+      return res.status(500).json({ ok: false, error: 'cleanup_unavailable' });
+    }
+  });
+
 /*
  * ---------------------------------------------------------
  * ADMIN LOGIN

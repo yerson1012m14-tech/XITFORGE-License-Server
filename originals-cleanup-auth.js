@@ -18,6 +18,7 @@ function createOriginalsCleanupAuth(pool) {
           JOIN licenses l ON l.id = s.license_id
          WHERE s.token_hash = $1
            AND s.created_at > NOW() - INTERVAL '24 hours'
+           AND (s.scope = 'paid' OR (s.scope = 'cleanup' AND s.expires_at > NOW()))
            AND EXISTS (
              SELECT 1 FROM activations a
               WHERE a.license_id = s.license_id
