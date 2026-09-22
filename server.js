@@ -1690,10 +1690,43 @@ app.post(
 
     try {
 
-      const durationDays =
-        Number(
-          req.body.durationDays
-        );
+      // Compatible with older clients that submit durationDays.
+      // Custom minute/hour licenses submit durationSeconds instead.
+      // Store an exact number of whole days in duration_days so the
+      // existing extension/administration logic remains consistent.
+      const hasSeconds = Object.prototype.hasOwnProperty.call(req.body, 'durationSeconds');
+      const hasDays = Object.prototype.hasOwnProperty.call(req.body, 'durationDays');
+      let durationDays = null;
+      let durationSeconds = null;
+
+      if (hasSeconds && hasDays) {
+        return res.status(400).json({ ok: false, error: 'Indica una sola duración.' });
+      }
+      if (hasSeconds) {
+        const requestedSeconds = Number(req.body.durationSeconds);
+        if (!Number.isSafeInteger(requestedSeconds) ||
+            requestedSeconds < 60 ||
+            requestedSeconds > 36500 * 86400) {
+          return res.status(400).json({
+            ok: false,
+            error: 'La duración debe estar entre 1 minuto y 36500 días.'
+          });
+        }
+        if (requestedSeconds % 86400 === 0) {
+          durationDays = requestedSeconds / 86400;
+        } else {
+          durationSeconds = requestedSeconds;
+        }
+      } else {
+        durationDays = Number(req.body.durationDays);
+        if (!Number.isSafeInteger(durationDays) ||
+            durationDays < 1 || durationDays > 36500) {
+          return res.status(400).json({
+            ok: false,
+            error: 'Los días deben ser un entero entre 1 y 36500.'
+          });
+        }
+      }
 
       const deviceLimit =
         Number(
@@ -1706,21 +1739,6 @@ app.post(
         )
           .trim()
           .slice(0, 120);
-
-      if (
-        !Number.isInteger(durationDays) ||
-        durationDays < 1 ||
-        durationDays > 36500
-      ) {
-
-        return res
-          .status(400)
-          .json({
-            ok: false,
-            error:
-              'Los días deben ser un número entero entre 1 y 36500'
-          });
-      }
 
       if (
         !Number.isInteger(deviceLimit) ||
@@ -1763,6 +1781,7 @@ app.post(
                 status,
                 expires_at,
                 duration_days,
+                duration_seconds,
                 first_used_at,
                 device_limit,
                 note,
@@ -1771,17 +1790,8 @@ app.post(
               )
             VALUES
               (
-                $1,
-                $2,
-                $3,
-                'new',
-                NULL,
-                $4,
-                NULL,
-                $5,
-                $6,
-                $7,
-                $8
+                $1, $2, $3, 'new', NULL,
+                $4, $5, NULL, $6, $7, $8, $9
               )
             RETURNING id
           `,
@@ -1790,6 +1800,7 @@ app.post(
             normalized.slice(0, 9),
             normalized.slice(-4),
             durationDays,
+            durationSeconds,
             deviceLimit,
             note,
             timestamp,
@@ -1805,6 +1816,7 @@ app.post(
           status: 'new',
           expiresAt: null,
           durationDays,
+          durationSeconds,
           deviceLimit,
           note,
           createdAt:
@@ -2848,6 +2860,9 @@ app.get(
       }
       if (!html.includes('/option-warnings.js')) {
         html = html.replace('</body>', '  <script src="/option-warnings.js"></script>\n</body>');
+      }
+      if (!html.includes('/generator-duration.js')) {
+        html = html.replace('</body>', '  <script src="/generator-duration.js"></script>\n</body>');
       }
 
       res
