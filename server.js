@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
 const { createLicenseAuth } = require('./license-auth');
+const { registerOptionSecurityRoutes } = require('./option-security-routes');
+const { createOriginalsCleanupAuth } = require('./originals-cleanup-auth');
 const { registerOptionsRoutes } = require('./options-routes');
 const { registerTwoFileOptionRoutes } = require('./two-files-routes');
 const { registerDeleteFileRoutes } = require('./delete-files-routes');
@@ -230,9 +232,11 @@ app.use(
  * WARNING: Do not deploy before both IPA variants support this protocol.
  */
 app.use(
-  ['/api/app/options', '/api/app/originals', '/api/app/delete-files'],
+  ['/api/app/options', '/api/app/delete-files'],
   licenseAuth.requirePaidSession
 );
+// Restore-only access for a previously authorized device, even after key expiry.
+app.use('/api/app/originals', createOriginalsCleanupAuth(pool));
 
 // The free-key service is permanently disabled on this security branch.
 // Return 410 for all its endpoints without changing the underlying data.
@@ -2715,6 +2719,13 @@ app.delete(
 let optionsDatabaseReady = null;
 let twoFilesDatabaseReady = null;
 let deleteFilesDatabaseReady = null;
+let optionSecurityDatabaseReady = null;
+
+
+// A POST activation authorization is verified independently for each selected option.
+const optionSecurityModule = registerOptionSecurityRoutes({
+  app, pool, requireAdmin, requirePaidSession: licenseAuth.requirePaidSession
+});
 
 const freeKeysModule = registerFreeKeyRoutes({
   app, pool, rateLimit, generateKey, normalizeKey, hashValue,
@@ -2832,16 +2843,11 @@ app.get(
           'utf8'
         );
 
-      if (
-        !html.includes(
-          '/app-extra.js'
-        )
-      ) {
-        html =
-          html.replace(
-            '</body>',
-            '  <script src="/app-extra.js"></script>\n\n</body>'
-          );
+      if (!html.includes('/app-extra.js')) {
+        html = html.replace('</body>', '  <script src="/app-extra.js"></script>\n</body>');
+      }
+      if (!html.includes('/option-warnings.js')) {
+        html = html.replace('</body>', '  <script src="/option-warnings.js"></script>\n</body>');
       }
 
       res
@@ -2883,6 +2889,7 @@ async function startServer() {
      */
 
     await optionsDatabaseReady;
+    await optionSecurityModule.ensureTable();
     await twoFilesDatabaseReady;
     await deleteFilesDatabaseReady;
 
