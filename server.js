@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const { Pool } = require('pg');
 const { createLicenseAuth } = require('./license-auth');
 const { registerOptionsRoutes } = require('./options-routes');
 const { registerTwoFileOptionRoutes } = require('./two-files-routes');
@@ -63,6 +64,9 @@ const pool = new Pool({
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000
 });
+
+// Session tokens are random, stored only as SHA-256 in PostgreSQL.
+const licenseAuth = createLicenseAuth(pool);
 
 /*
  * ---------------------------------------------------------
@@ -218,6 +222,23 @@ app.use(
     extended: false
   })
 );
+
+/*
+ * Paid-license authorization for all app options and file endpoints.
+ * Must run before registerTwoFileOptionRoutes / registerOptionsRoutes.
+ * The clients must send 'Authorization: Bearer <sessionToken>' on every request.
+ * WARNING: Do not deploy before both IPA variants support this protocol.
+ */
+app.use(
+  ['/api/app/options', '/api/app/originals', '/api/app/delete-files'],
+  licenseAuth.requirePaidSession
+);
+
+// The free-key service is permanently disabled on this security branch.
+// Return 410 for all its endpoints without changing the underlying data.
+app.use(['/free-key', '/api/free-key'], (req, res) => {
+  res.status(410).json({ ok: false, error: 'free_keys_disabled' });
+});
 
 /*
  * ---------------------------------------------------------
@@ -1333,6 +1354,16 @@ app.post(
         });
       }
 
+      // Reject all existing complimentary keys even if their records remain.
+      const accessLevel = await getLicenseAccessLevel(license.id);
+      if (accessLevel !== 'premium') {
+        return res.status(403).json({
+          ok: false,
+          valid: false,
+          reason: 'free_keys_disabled'
+        });
+      }
+
       const activeLicense =
         await activateLicenseOnFirstUse(
           license
@@ -1354,10 +1385,13 @@ app.post(
         });
       }
 
-      const accessLevel =
-        await getLicenseAccessLevel(
-          activeLicense.id
-        );
+      if (activeLicense.status !== 'active' ||
+          !activeLicense.expires_at ||
+          isExpired(activeLicense.expires_at)) {
+        return res.status(403).json({
+          ok: false, valid: false, reason: 'license_not_active'
+        });
+      }
 
       const deviceHash =
         hashValue(deviceId);
@@ -1401,14 +1435,24 @@ app.post(
           ]
         );
 
+        const session = await licenseAuth.issueSession(
+          activeLicense.id, deviceId
+        );
+        if (!session) {
+          return res.status(403).json({
+            ok: false, valid: false, reason: 'authorization_unavailable'
+          });
+        }
+
+        res.setHeader('Cache-Control', 'no-store');
         return res.json({
           ok: true,
           valid: true,
-          expiresAt:
-            activeLicense.expires_at,
-          keyPrefix:
-            activeLicense.key_prefix,
-          accessLevel
+          expiresAt: activeLicense.expires_at,
+          keyPrefix: activeLicense.key_prefix,
+          accessLevel,
+          sessionToken: session.token,
+          sessionExpiresAt: session.expiresAt
         });
       }
 
@@ -1458,14 +1502,24 @@ app.post(
         ]
       );
 
+      const session = await licenseAuth.issueSession(
+        activeLicense.id, deviceId
+      );
+      if (!session) {
+        return res.status(403).json({
+          ok: false, valid: false, reason: 'authorization_unavailable'
+        });
+      }
+
+      res.setHeader('Cache-Control', 'no-store');
       return res.json({
         ok: true,
         valid: true,
-        expiresAt:
-          activeLicense.expires_at,
-        keyPrefix:
-          activeLicense.key_prefix,
-        accessLevel
+        expiresAt: activeLicense.expires_at,
+        keyPrefix: activeLicense.key_prefix,
+        accessLevel,
+        sessionToken: session.token,
+        sessionExpiresAt: session.expiresAt
       });
 
     } catch (error) {
@@ -2821,6 +2875,7 @@ async function startServer() {
 
     await initializeDatabase();
     await freeKeysModule.ensureTables();
+    await licenseAuth.ensureTable();
 
     /*
      * Esperar también a que la tabla
