@@ -226,14 +226,16 @@ app.use(
 );
 
 /*
- * Premium option manifests/files require a currently valid paid session.
- * Cleanup endpoints are different: they may also use the bounded restore-only
- * token issued to a device that previously activated the license.
+ * Paid-license authorization for all app options and file endpoints.
+ * Must run before registerTwoFileOptionRoutes / registerOptionsRoutes.
+ * The clients must send 'Authorization: Bearer <sessionToken>' on every request.
+ * WARNING: Do not deploy before both IPA variants support this protocol.
  */
 app.use(
   '/api/app/options',
   licenseAuth.requirePaidSession
 );
+
 // Restore/delete-only access for a previously authorized device, even after key expiry.
 app.use(
   ['/api/app/originals', '/api/app/delete-files'],
