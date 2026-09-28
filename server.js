@@ -3,6 +3,9 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
+const { createLicenseAuth } = require('./license-auth');
+const { registerOptionSecurityRoutes } = require('./option-security-routes');
+const { createOriginalsCleanupAuth } = require('./originals-cleanup-auth');
 const { registerOptionsRoutes } = require('./options-routes');
 const { registerTwoFileOptionRoutes } = require('./two-files-routes');
 const { registerDeleteFileRoutes } = require('./delete-files-routes');
@@ -63,6 +66,9 @@ const pool = new Pool({
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000
 });
+
+// Session tokens are random, stored only as SHA-256 in PostgreSQL.
+const licenseAuth = createLicenseAuth(pool);
 
 /*
  * ---------------------------------------------------------
@@ -218,6 +224,27 @@ app.use(
     extended: false
   })
 );
+
+/*
+ * Premium option manifests/files require a currently valid paid session.
+ * Cleanup endpoints are different: they may also use the bounded restore-only
+ * token issued to a device that previously activated the license.
+ */
+app.use(
+  '/api/app/options',
+  licenseAuth.requirePaidSession
+);
+// Restore/delete-only access for a previously authorized device, even after key expiry.
+app.use(
+  ['/api/app/originals', '/api/app/delete-files'],
+  createOriginalsCleanupAuth(pool)
+);
+
+// The free-key service is permanently disabled on this security branch.
+// Return 410 for all its endpoints without changing the underlying data.
+app.use(['/free-key', '/api/free-key'], (req, res) => {
+  res.status(410).json({ ok: false, error: 'free_keys_disabled' });
+});
 
 /*
  * ---------------------------------------------------------
@@ -1333,6 +1360,16 @@ app.post(
         });
       }
 
+      // Reject all existing complimentary keys even if their records remain.
+      const accessLevel = await getLicenseAccessLevel(license.id);
+      if (accessLevel !== 'premium') {
+        return res.status(403).json({
+          ok: false,
+          valid: false,
+          reason: 'free_keys_disabled'
+        });
+      }
+
       const activeLicense =
         await activateLicenseOnFirstUse(
           license
@@ -1354,10 +1391,13 @@ app.post(
         });
       }
 
-      const accessLevel =
-        await getLicenseAccessLevel(
-          activeLicense.id
-        );
+      if (activeLicense.status !== 'active' ||
+          !activeLicense.expires_at ||
+          isExpired(activeLicense.expires_at)) {
+        return res.status(403).json({
+          ok: false, valid: false, reason: 'license_not_active'
+        });
+      }
 
       const deviceHash =
         hashValue(deviceId);
@@ -1401,14 +1441,24 @@ app.post(
           ]
         );
 
+        const session = await licenseAuth.issueSession(
+          activeLicense.id, deviceId
+        );
+        if (!session) {
+          return res.status(403).json({
+            ok: false, valid: false, reason: 'authorization_unavailable'
+          });
+        }
+
+        res.setHeader('Cache-Control', 'no-store');
         return res.json({
           ok: true,
           valid: true,
-          expiresAt:
-            activeLicense.expires_at,
-          keyPrefix:
-            activeLicense.key_prefix,
-          accessLevel
+          expiresAt: activeLicense.expires_at,
+          keyPrefix: activeLicense.key_prefix,
+          accessLevel,
+          sessionToken: session.token,
+          sessionExpiresAt: session.expiresAt
         });
       }
 
@@ -1458,14 +1508,24 @@ app.post(
         ]
       );
 
+      const session = await licenseAuth.issueSession(
+        activeLicense.id, deviceId
+      );
+      if (!session) {
+        return res.status(403).json({
+          ok: false, valid: false, reason: 'authorization_unavailable'
+        });
+      }
+
+      res.setHeader('Cache-Control', 'no-store');
       return res.json({
         ok: true,
         valid: true,
-        expiresAt:
-          activeLicense.expires_at,
-        keyPrefix:
-          activeLicense.key_prefix,
-        accessLevel
+        expiresAt: activeLicense.expires_at,
+        keyPrefix: activeLicense.key_prefix,
+        accessLevel,
+        sessionToken: session.token,
+        sessionExpiresAt: session.expiresAt
       });
 
     } catch (error) {
@@ -1486,6 +1546,32 @@ app.post(
     }
   }
 );
+
+
+/* Restore-only authorization for a device that activated this key previously.
+ * This DOES NOT authorize premium content or new activations. */
+app.post('/api/license/cleanup-token', rateLimit({ windowMs: 60_000, max: 12 }),
+  async (req, res) => {
+    try {
+      const key = normalizeKey(req.body && req.body.key);
+      const deviceId = String((req.body && req.body.deviceId) || '').trim();
+      if (!isValidKeyFormat(key) || deviceId.length < 8 || deviceId.length > 256) {
+        return res.status(400).json({ ok: false, error: 'invalid_request' });
+      }
+      const result = await pool.query(
+        'SELECT id FROM licenses WHERE key_hash = $1 LIMIT 1', [hashValue(key)]);
+      if (result.rows.length !== 1) {
+        return res.status(403).json({ ok: false, error: 'cleanup_unavailable' });
+      }
+      const session = await licenseAuth.issueCleanupSession(result.rows[0].id, deviceId);
+      if (!session) return res.status(403).json({ ok: false, error: 'cleanup_unavailable' });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ ok: true, cleanupToken: session.token });
+    } catch (error) {
+      console.error('Cleanup authorization failed:', error);
+      return res.status(500).json({ ok: false, error: 'cleanup_unavailable' });
+    }
+  });
 
 /*
  * ---------------------------------------------------------
@@ -1632,10 +1718,43 @@ app.post(
 
     try {
 
-      const durationDays =
-        Number(
-          req.body.durationDays
-        );
+      // Compatible with older clients that submit durationDays.
+      // Custom minute/hour licenses submit durationSeconds instead.
+      // Store an exact number of whole days in duration_days so the
+      // existing extension/administration logic remains consistent.
+      const hasSeconds = Object.prototype.hasOwnProperty.call(req.body, 'durationSeconds');
+      const hasDays = Object.prototype.hasOwnProperty.call(req.body, 'durationDays');
+      let durationDays = null;
+      let durationSeconds = null;
+
+      if (hasSeconds && hasDays) {
+        return res.status(400).json({ ok: false, error: 'Indica una sola duración.' });
+      }
+      if (hasSeconds) {
+        const requestedSeconds = Number(req.body.durationSeconds);
+        if (!Number.isSafeInteger(requestedSeconds) ||
+            requestedSeconds < 60 ||
+            requestedSeconds > 36500 * 86400) {
+          return res.status(400).json({
+            ok: false,
+            error: 'La duración debe estar entre 1 minuto y 36500 días.'
+          });
+        }
+        if (requestedSeconds % 86400 === 0) {
+          durationDays = requestedSeconds / 86400;
+        } else {
+          durationSeconds = requestedSeconds;
+        }
+      } else {
+        durationDays = Number(req.body.durationDays);
+        if (!Number.isSafeInteger(durationDays) ||
+            durationDays < 1 || durationDays > 36500) {
+          return res.status(400).json({
+            ok: false,
+            error: 'Los días deben ser un entero entre 1 y 36500.'
+          });
+        }
+      }
 
       const deviceLimit =
         Number(
@@ -1648,21 +1767,6 @@ app.post(
         )
           .trim()
           .slice(0, 120);
-
-      if (
-        !Number.isInteger(durationDays) ||
-        durationDays < 1 ||
-        durationDays > 36500
-      ) {
-
-        return res
-          .status(400)
-          .json({
-            ok: false,
-            error:
-              'Los días deben ser un número entero entre 1 y 36500'
-          });
-      }
 
       if (
         !Number.isInteger(deviceLimit) ||
@@ -1705,6 +1809,7 @@ app.post(
                 status,
                 expires_at,
                 duration_days,
+                duration_seconds,
                 first_used_at,
                 device_limit,
                 note,
@@ -1713,17 +1818,8 @@ app.post(
               )
             VALUES
               (
-                $1,
-                $2,
-                $3,
-                'new',
-                NULL,
-                $4,
-                NULL,
-                $5,
-                $6,
-                $7,
-                $8
+                $1, $2, $3, 'new', NULL,
+                $4, $5, NULL, $6, $7, $8, $9
               )
             RETURNING id
           `,
@@ -1732,6 +1828,7 @@ app.post(
             normalized.slice(0, 9),
             normalized.slice(-4),
             durationDays,
+            durationSeconds,
             deviceLimit,
             note,
             timestamp,
@@ -1747,6 +1844,7 @@ app.post(
           status: 'new',
           expiresAt: null,
           durationDays,
+          durationSeconds,
           deviceLimit,
           note,
           createdAt:
@@ -2661,6 +2759,13 @@ app.delete(
 let optionsDatabaseReady = null;
 let twoFilesDatabaseReady = null;
 let deleteFilesDatabaseReady = null;
+let optionSecurityDatabaseReady = null;
+
+
+// A POST activation authorization is verified independently for each selected option.
+const optionSecurityModule = registerOptionSecurityRoutes({
+  app, pool, requireAdmin, requirePaidSession: licenseAuth.requirePaidSession
+});
 
 const freeKeysModule = registerFreeKeyRoutes({
   app, pool, rateLimit, generateKey, normalizeKey, hashValue,
@@ -2778,16 +2883,14 @@ app.get(
           'utf8'
         );
 
-      if (
-        !html.includes(
-          '/app-extra.js'
-        )
-      ) {
-        html =
-          html.replace(
-            '</body>',
-            '  <script src="/app-extra.js"></script>\n\n</body>'
-          );
+      if (!html.includes('/app-extra.js')) {
+        html = html.replace('</body>', '  <script src="/app-extra.js"></script>\n</body>');
+      }
+      if (!html.includes('/option-warnings.js')) {
+        html = html.replace('</body>', '  <script src="/option-warnings.js"></script>\n</body>');
+      }
+      if (!html.includes('/generator-duration.js')) {
+        html = html.replace('</body>', '  <script src="/generator-duration.js"></script>\n</body>');
       }
 
       res
@@ -2821,6 +2924,7 @@ async function startServer() {
 
     await initializeDatabase();
     await freeKeysModule.ensureTables();
+    await licenseAuth.ensureTable();
 
     /*
      * Esperar también a que la tabla
@@ -2828,6 +2932,7 @@ async function startServer() {
      */
 
     await optionsDatabaseReady;
+    await optionSecurityModule.ensureTable();
     await twoFilesDatabaseReady;
     await deleteFilesDatabaseReady;
 
