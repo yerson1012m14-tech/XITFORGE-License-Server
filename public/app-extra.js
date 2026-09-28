@@ -1,99 +1,49 @@
 /*
- * XITFORGE - DOS ARCHIVOS POR OPCIÓN
+ * XITFORGE - EXTENSION DEL PANEL
  *
- * Este archivo se carga DESPUÉS de /app.js.
- * No reemplaza el panel actual: extiende solamente "Opciones".
+ * - Dos archivos por opción.
+ * - Reglas de BORRAR al DESACTIVAR con:
+ *   * Free Fire Normal / Free Fire MAX / AMBOS
+ *   * selección múltiple de opciones
+ *   * reglas agrupadas por ruta + archivo
+ *
+ * Se carga DESPUÉS de /app.js.
  */
 
 (() => {
   'use strict';
 
-  /*
-   * =========================================================
-   * AGREGAR CAMPO "ARCHIVO 2 (OPCIONAL)"
-   * =========================================================
-   */
-
-  const sortLabel =
-    document.querySelector(
-      'label[for="optionSortOrder"]'
-    );
+  const sortLabel = document.querySelector('label[for="optionSortOrder"]');
 
   if (!sortLabel) {
-    console.error(
-      'XITFORGE two-file addon: optionSortOrder label not found.'
-    );
+    console.error('XITFORGE two-file addon: optionSortOrder label not found.');
     return;
   }
 
-  const secondFileLabel =
-    document.createElement('label');
+  const secondFileLabel = document.createElement('label');
+  secondFileLabel.htmlFor = 'optionFile2';
+  secondFileLabel.textContent = 'Archivo 2 para ACTIVAR (opcional)';
 
-  secondFileLabel.htmlFor =
-    'optionFile2';
+  const secondFileInput = document.createElement('input');
+  secondFileInput.id = 'optionFile2';
+  secondFileInput.type = 'file';
 
-  secondFileLabel.textContent =
-    'Archivo 2 para ACTIVAR (opcional)';
-
-  const secondFileInput =
-    document.createElement('input');
-
-  secondFileInput.id =
-    'optionFile2';
-
-  secondFileInput.type =
-    'file';
-
-  const secondFileHelp =
-    document.createElement('p');
-
-  secondFileHelp.className =
-    'fieldHelp';
-
+  const secondFileHelp = document.createElement('p');
+  secondFileHelp.className = 'fieldHelp';
   secondFileHelp.textContent =
     'Puedes dejarlo vacío. Si lo eliges, ACTIVAR tendrá dos archivos. Máximo 32 MB.';
 
-  sortLabel.parentNode.insertBefore(
-    secondFileLabel,
-    sortLabel
-  );
+  sortLabel.parentNode.insertBefore(secondFileLabel, sortLabel);
+  sortLabel.parentNode.insertBefore(secondFileInput, sortLabel);
+  sortLabel.parentNode.insertBefore(secondFileHelp, sortLabel);
 
-  sortLabel.parentNode.insertBefore(
-    secondFileInput,
-    sortLabel
-  );
+  const optionFile2 = secondFileInput;
 
-  sortLabel.parentNode.insertBefore(
-    secondFileHelp,
-    sortLabel
-  );
+  async function uploadOptionFileSlot(id, file, slot) {
+    if (!file) return;
 
-  const optionFile2 =
-    secondFileInput;
-
-
-  /*
-   * =========================================================
-   * HELPERS DE ARCHIVOS
-   * =========================================================
-   */
-
-  async function uploadOptionFileSlot(
-    id,
-    file,
-    slot
-  ) {
-    if (!file) {
-      return;
-    }
-
-    if (
-      file.size >
-      32 * 1024 * 1024
-    ) {
-      throw new Error(
-        `${file.name} supera 32 MB.`
-      );
+    if (file.size > 32 * 1024 * 1024) {
+      throw new Error(`${file.name} supera 32 MB.`);
     }
 
     const endpoint =
@@ -101,69 +51,32 @@
         ? `/api/admin/options/${id}/file2`
         : `/api/admin/options/${id}/file`;
 
-    const response =
-      await fetch(
-        endpoint,
-        {
-          method: 'POST',
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/octet-stream',
+        'X-File-Name': file.name,
+        'X-File-Mime': file.type || 'application/octet-stream'
+      },
+      body: file
+    });
 
-          headers: {
-            Authorization:
-              `Bearer ${token}`,
+    const data = await response.json().catch(() => ({}));
 
-            'Content-Type':
-              'application/octet-stream',
-
-            'X-File-Name':
-              file.name,
-
-            'X-File-Mime':
-              file.type ||
-              'application/octet-stream'
-          },
-
-          body:
-            file
-        }
-      );
-
-    const data =
-      await response
-        .json()
-        .catch(
-          () => ({})
-        );
-
-    if (
-      response.status === 401
-    ) {
+    if (response.status === 401) {
       logout();
-
-      throw new Error(
-        'Sesión expirada'
-      );
+      throw new Error('Sesión expirada');
     }
 
     if (!response.ok) {
       throw new Error(
-        data.error ||
-        `No se pudo subir el archivo ${slot}.`
+        data.error || `No se pudo subir el archivo ${slot}.`
       );
     }
 
     return data;
   }
-
-
-  /*
-   * =========================================================
-   * REEMPLAZAR SOLO EL SUBMIT DE OPCIONES
-   *
-   * Capture=true hace que este handler corra antes que el
-   * handler viejo de app.js. stopImmediatePropagation evita
-   * que la opción se guarde dos veces.
-   * =========================================================
-   */
 
   optionForm.addEventListener(
     'submit',
@@ -171,546 +84,277 @@
       event.preventDefault();
       event.stopImmediatePropagation();
 
-      optionFormError.textContent =
-        '';
+      optionFormError.textContent = '';
 
       const submitButton =
-        optionForm.querySelector(
-          'button[type="submit"]'
-        );
+        optionForm.querySelector('button[type="submit"]');
+      const oldText = submitButton.textContent;
 
-      const oldText =
-        submitButton.textContent;
-
-      submitButton.disabled =
-        true;
-
-      submitButton.textContent =
-        'GUARDANDO...';
+      submitButton.disabled = true;
+      submitButton.textContent = 'GUARDANDO...';
 
       try {
-        const id =
-          optionId.value.trim();
+        const id = optionId.value.trim();
 
         const payload = {
-          name:
-            optionName.value.trim(),
-
-          description:
-            optionDescription.value.trim(),
-
-          game:
-            optionGame.value,
-
-          category:
-            optionCategory.value,
-
-          route:
-            optionRoute.value.trim(),
-
-          sortOrder:
-            Number(
-              optionSortOrder.value
-            ) || 0
+          name: optionName.value.trim(),
+          description: optionDescription.value.trim(),
+          game: optionGame.value,
+          category: optionCategory.value,
+          route: optionRoute.value.trim(),
+          sortOrder: Number(optionSortOrder.value) || 0
         };
 
-        let targetId =
-          id;
+        let targetId = id;
 
         if (id) {
-          await api(
-            `/api/admin/options/${id}`,
-            {
-              method: 'PUT',
-              body:
-                JSON.stringify(
-                  payload
-                )
-            }
-          );
+          await api(`/api/admin/options/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+          });
         } else {
-          const created =
-            await api(
-              '/api/admin/options',
-              {
-                method: 'POST',
-                body:
-                  JSON.stringify(
-                    payload
-                  )
-              }
-            );
+          const created = await api('/api/admin/options', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
 
-          targetId =
-            created.option
-              ? String(
-                  created.option.id
-                )
-              : '';
+          targetId = created.option
+            ? String(created.option.id)
+            : '';
         }
 
         if (!targetId) {
-          throw new Error(
-            'No se pudo obtener el ID de la opción.'
-          );
+          throw new Error('No se pudo obtener el ID de la opción.');
         }
 
-        const firstFile =
-          optionFile.files[0] ||
-          null;
-
-        const secondFile =
-          optionFile2.files[0] ||
-          null;
+        const firstFile = optionFile.files[0] || null;
+        const secondFile = optionFile2.files[0] || null;
 
         if (firstFile) {
-          await uploadOptionFileSlot(
-            targetId,
-            firstFile,
-            1
-          );
+          await uploadOptionFileSlot(targetId, firstFile, 1);
         }
 
         if (secondFile) {
-          await uploadOptionFileSlot(
-            targetId,
-            secondFile,
-            2
-          );
+          await uploadOptionFileSlot(targetId, secondFile, 2);
         }
 
         closeOptionForm();
-
-        showToast(
-          'Opción guardada correctamente'
-        );
-
+        showToast('Opción guardada correctamente');
         await loadOptions();
 
       } catch (error) {
-        optionFormError.textContent =
-          error.message;
+        optionFormError.textContent = error.message;
       } finally {
-        submitButton.disabled =
-          false;
-
-        submitButton.textContent =
-          oldText;
+        submitButton.disabled = false;
+        submitButton.textContent = oldText;
       }
     },
     true
   );
 
+  const originalOpenOptionForm = openOptionForm;
 
-  /*
-   * =========================================================
-   * LIMPIAR ARCHIVO 2 AL ABRIR / CERRAR
-   * =========================================================
-   */
-
-  const originalOpenOptionForm =
-    openOptionForm;
-
-  openOptionForm = function (
-    option = null
-  ) {
-    originalOpenOptionForm(
-      option
-    );
-
-    optionFile2.value =
-      '';
+  openOptionForm = function (option = null) {
+    originalOpenOptionForm(option);
+    optionFile2.value = '';
   };
 
-  const originalCloseOptionForm =
-    closeOptionForm;
+  const originalCloseOptionForm = closeOptionForm;
 
-  closeOptionForm =
-    function () {
-      originalCloseOptionForm();
+  closeOptionForm = function () {
+    originalCloseOptionForm();
+    optionFile2.value = '';
+  };
 
-      optionFile2.value =
-        '';
-    };
+  renderOptions = function () {
+    const filter = optionsGameFilter.value;
+    let items = optionsCache;
 
+    if (filter !== 'all') {
+      items = items.filter(option => option.game === filter);
+    }
 
-  /*
-   * =========================================================
-   * RENDER DE OPCIONES CON DOS ARCHIVOS
-   * =========================================================
-   */
+    if (items.length === 0) {
+      optionsWrap.innerHTML = `
+        <div class="emptyState">
+          <div class="emptyIcon">+</div>
+          <h3>No hay opciones</h3>
+          <p class="muted">Crea la primera opción para este juego.</p>
+        </div>
+      `;
+      return;
+    }
 
-  renderOptions =
-    function () {
-
-      const filter =
-        optionsGameFilter.value;
-
-      let items =
-        optionsCache;
-
-      if (
-        filter !== 'all'
-      ) {
-        items =
-          items.filter(
-            option =>
-              option.game === filter
-          );
-      }
-
-      if (
-        items.length === 0
-      ) {
-        optionsWrap.innerHTML =
-          `
-            <div class="emptyState">
-
-              <div class="emptyIcon">
-                +
-              </div>
-
-              <h3>
-                No hay opciones
-              </h3>
-
-              <p class="muted">
-                Crea la primera opción para este juego.
-              </p>
-
-            </div>
-          `;
-
-        return;
-      }
-
-      optionsWrap.innerHTML =
-        items
-          .map(
-            option =>
-              `
-                <article
-                  class="optionCard
+    optionsWrap.innerHTML = items
+      .map(
+        option => `
+          <article class="optionCard ${option.enabled ? '' : 'optionDisabled'}">
+            <div class="optionMain">
+              <div class="optionIcon">⚙</div>
+              <div class="optionText">
+                <div class="optionTitleRow">
+                  <h3>${escapeHtml(option.name)}</h3>
                   ${
                     option.enabled
-                      ? ''
-                      : 'optionDisabled'
-                  }"
-                >
+                      ? '<span class="badge active">ACTIVA</span>'
+                      : '<span class="badge revoked">DESACTIVADA</span>'
+                  }
+                </div>
+                <p>${escapeHtml(option.description || 'Sin descripción')}</p>
+              </div>
+            </div>
 
-                  <div class="optionMain">
+            <div class="optionMeta">
+              <span>
+                <strong>Categoría:</strong>
+                ${
+                  option.category === 'aimbot'
+                    ? 'Aimbots'
+                    : option.category === 'fps'
+                      ? 'FPS'
+                      : 'Hologramas'
+                }
+              </span>
 
-                    <div
-                      class="optionIcon"
-                    >
-                      ⚙
-                    </div>
+              <span>
+                <strong>Juego:</strong>
+                ${gameLabel(option.game)}
+              </span>
 
-                    <div
-                      class="optionText"
-                    >
+              <span>
+                <strong>Ruta:</strong>
+                <code>${escapeHtml(option.route)}</code>
+              </span>
 
-                      <div
-                        class="optionTitleRow"
-                      >
+              <span>
+                <strong>ARCHIVO 1:</strong>
+                ${
+                  option.hasFile
+                    ? escapeHtml(option.fileName || 'Archivo modificado')
+                    : 'Sin archivo'
+                }
+              </span>
 
-                        <h3>
-                          ${escapeHtml(
-                            option.name
-                          )}
-                        </h3>
+              <span>
+                <strong>ARCHIVO 2:</strong>
+                ${
+                  option.hasFile2
+                    ? escapeHtml(option.file2Name || 'Archivo modificado')
+                    : 'Sin archivo'
+                }
+              </span>
+            </div>
 
-                        ${
-                          option.enabled
-                            ? `
-                              <span
-                                class="badge active"
-                              >
-                                ACTIVA
-                              </span>
-                            `
-                            : `
-                              <span
-                                class="badge revoked"
-                              >
-                                DESACTIVADA
-                              </span>
-                            `
-                        }
+            <div class="optionActions">
+              <button class="small" data-option-action="edit" data-id="${option.id}">
+                Editar
+              </button>
 
-                      </div>
+              <button class="small" data-option-action="toggle" data-id="${option.id}">
+                ${option.enabled ? 'Desactivar' : 'Activar'}
+              </button>
 
-                      <p>
-                        ${escapeHtml(
-                          option.description ||
-                          'Sin descripción'
-                        )}
-                      </p>
-
-                    </div>
-
-                  </div>
-
-
-                  <div
-                    class="optionMeta"
-                  >
-
-                    <span>
-                      <strong>
-                        Categoría:
-                      </strong>
-
-                      ${
-                        option.category === 'aimbot'
-                          ? 'Aimbots'
-                          : (
-                              option.category === 'fps'
-                                ? 'FPS'
-                                : 'Hologramas'
-                            )
-                      }
-                    </span>
-
-                    <span>
-                      <strong>
-                        Juego:
-                      </strong>
-
-                      ${gameLabel(
-                        option.game
-                      )}
-                    </span>
-
-                    <span>
-                      <strong>
-                        Ruta:
-                      </strong>
-
-                      <code>
-                        ${escapeHtml(
-                          option.route
-                        )}
-                      </code>
-                    </span>
-
-                    <span>
-                      <strong>
-                        ARCHIVO 1:
-                      </strong>
-
-                      ${
-                        option.hasFile
-                          ? escapeHtml(
-                              option.fileName ||
-                              'Archivo modificado'
-                            )
-                          : 'Sin archivo'
-                      }
-                    </span>
-
-                    <span>
-                      <strong>
-                        ARCHIVO 2:
-                      </strong>
-
-                      ${
-                        option.hasFile2
-                          ? escapeHtml(
-                              option.file2Name ||
-                              'Archivo modificado'
-                            )
-                          : 'Sin archivo'
-                      }
-                    </span>
-
-                  </div>
-
-
-                  <div
-                    class="optionActions"
-                  >
-
-                    <button
-                      class="small"
-                      data-option-action="edit"
-                      data-id="${option.id}"
-                    >
-                      Editar
-                    </button>
-
-
-                    <button
-                      class="small"
-                      data-option-action="toggle"
-                      data-id="${option.id}"
-                    >
-                      ${
-                        option.enabled
-                          ? 'Desactivar'
-                          : 'Activar'
-                      }
-                    </button>
-
-
-                    ${
-                      option.hasFile
-                        ? `
-                          <button
-                            class="small danger"
-                            data-option-action="delete-file1"
-                            data-id="${option.id}"
-                          >
-                            Eliminar archivo 1
-                          </button>
-                        `
-                        : ''
-                    }
-
-
-                    ${
-                      option.hasFile2
-                        ? `
-                          <button
-                            class="small danger"
-                            data-option-action="delete-file2"
-                            data-id="${option.id}"
-                          >
-                            Eliminar archivo 2
-                          </button>
-                        `
-                        : ''
-                    }
-
-
+              ${
+                option.hasFile
+                  ? `
                     <button
                       class="small danger"
-                      data-option-action="delete"
+                      data-option-action="delete-file1"
                       data-id="${option.id}"
                     >
-                      Eliminar opción
+                      Eliminar archivo 1
                     </button>
+                  `
+                  : ''
+              }
 
-                  </div>
+              ${
+                option.hasFile2
+                  ? `
+                    <button
+                      class="small danger"
+                      data-option-action="delete-file2"
+                      data-id="${option.id}"
+                    >
+                      Eliminar archivo 2
+                    </button>
+                  `
+                  : ''
+              }
 
-                </article>
-              `
-          )
-          .join('');
+              <button class="small danger" data-option-action="delete" data-id="${option.id}">
+                Eliminar opción
+              </button>
+            </div>
+          </article>
+        `
+      )
+      .join('');
 
-      optionsWrap
-        .querySelectorAll(
-          'button[data-option-action]'
-        )
-        .forEach(
-          button => {
-            button.addEventListener(
-              'click',
-              handleOptionAction
-            );
-          }
-        );
-    };
+    optionsWrap
+      .querySelectorAll('button[data-option-action]')
+      .forEach(button => {
+        button.addEventListener('click', handleOptionAction);
+      });
+  };
 
+  const originalHandleOptionAction = handleOptionAction;
 
-  /*
-   * =========================================================
-   * BORRADO INDIVIDUAL DE ARCHIVOS
-   * =========================================================
-   */
+  handleOptionAction = async function (event) {
+    const button = event.currentTarget;
+    const id = Number(button.dataset.id);
+    const action = button.dataset.optionAction;
 
-  const originalHandleOptionAction =
-    handleOptionAction;
+    const option = optionsCache.find(
+      item => Number(item.id) === id
+    );
 
-  handleOptionAction =
-    async function (event) {
+    if (!option) return;
 
-      const button =
-        event.currentTarget;
+    if (
+      action !== 'delete-file1' &&
+      action !== 'delete-file2'
+    ) {
+      return originalHandleOptionAction(event);
+    }
 
-      const id =
-        Number(
-          button.dataset.id
-        );
+    const slot = action === 'delete-file2' ? 2 : 1;
+    const fileName =
+      slot === 2
+        ? option.file2Name
+        : option.fileName;
 
-      const action =
-        button.dataset.optionAction;
+    const confirmed = confirm(
+      `¿Eliminar solamente el archivo ${slot} "${fileName || 'Sin nombre'}"?\n\n` +
+      `La opción "${option.name}" NO se borrará.`
+    );
 
-      const option =
-        optionsCache.find(
-          item =>
-            Number(item.id) === id
-        );
+    if (!confirmed) return;
 
-      if (!option) {
-        return;
-      }
+    button.disabled = true;
 
-      if (
-        action !== 'delete-file1' &&
-        action !== 'delete-file2'
-      ) {
-        return originalHandleOptionAction(
-          event
-        );
-      }
-
-      const slot =
-        action === 'delete-file2'
-          ? 2
-          : 1;
-
-      const fileName =
+    try {
+      const endpoint =
         slot === 2
-          ? option.file2Name
-          : option.fileName;
+          ? `/api/admin/options/${id}/file2`
+          : `/api/admin/options/${id}/file`;
 
-      const confirmed =
-        confirm(
-          `¿Eliminar solamente el archivo ${slot} "${fileName || 'Sin nombre'}"?\n\nLa opción "${option.name}" NO se borrará.`
-        );
+      await api(endpoint, { method: 'DELETE' });
+      showToast(`Archivo ${slot} eliminado`);
+      await loadOptions();
 
-      if (!confirmed) {
-        return;
-      }
-
-      button.disabled =
-        true;
-
-      try {
-        const endpoint =
-          slot === 2
-            ? `/api/admin/options/${id}/file2`
-            : `/api/admin/options/${id}/file`;
-
-        await api(
-          endpoint,
-          {
-            method: 'DELETE'
-          }
-        );
-
-        showToast(
-          `Archivo ${slot} eliminado`
-        );
-
-        await loadOptions();
-
-      } catch (error) {
-        button.disabled =
-          false;
-
-        showToast(
-          error.message,
-          'error'
-        );
-      }
-    };
-
+    } catch (error) {
+      button.disabled = false;
+      showToast(error.message, 'error');
+    }
+  };
 })();
+
+
 /*
  * =========================================================
- * XITFORGE - ARCHIVOS PARA BORRAR AL DESACTIVAR
+ * XITFORGE - BORRAR AL DESACTIVAR
+ * MULTIJUEGO + MULTIOPCIÓN
  * =========================================================
  */
 
@@ -718,9 +362,7 @@
   'use strict';
 
   const originalCard =
-    document.querySelector(
-      '.originalFilesCard'
-    );
+    document.querySelector('.originalFilesCard');
 
   if (!originalCard) {
     console.error(
@@ -729,82 +371,158 @@
     return;
   }
 
-  const section =
-    document.createElement(
-      'section'
-    );
+  const style = document.createElement('style');
+  style.textContent = `
+    #deleteFilesCard .xfDeleteOptionBox {
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 14px;
+      padding: 12px;
+      margin-top: 8px;
+      max-height: 310px;
+      overflow: auto;
+      background: rgba(255,255,255,.025);
+    }
 
-  section.className =
-    'card originalFilesCard';
+    #deleteFilesCard .xfDeleteGameGroup + .xfDeleteGameGroup {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,.07);
+    }
 
-  section.id =
-    'deleteFilesCard';
+    #deleteFilesCard .xfDeleteGameTitle {
+      font-weight: 800;
+      font-size: 12px;
+      margin-bottom: 8px;
+      opacity: .82;
+      letter-spacing: .03em;
+    }
+
+    #deleteFilesCard .xfDeleteChoice {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 4px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #deleteFilesCard .xfDeleteChoice input {
+      width: 17px;
+      height: 17px;
+      margin: 0;
+      flex: 0 0 auto;
+    }
+
+    #deleteFilesCard .xfDeleteChoice span {
+      line-height: 1.25;
+    }
+
+    #deleteFilesCard .xfDeleteChoice small {
+      display: block;
+      opacity: .55;
+      margin-top: 2px;
+    }
+
+    #deleteFilesCard .xfDeleteBulkActions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 9px 0 4px;
+    }
+
+    #deleteFilesCard .xfDeleteBulkActions button {
+      width: auto;
+    }
+
+    #deleteFilesCard .xfDeleteGroupOptions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px 7px;
+      margin-top: 5px;
+      opacity: .78;
+      font-size: 12px;
+    }
+
+    #deleteFilesCard .xfDeleteGroupGames {
+      font-weight: 700;
+    }
+  `;
+  document.head.appendChild(style);
+
+  const section = document.createElement('section');
+  section.className = 'card originalFilesCard';
+  section.id = 'deleteFilesCard';
 
   section.innerHTML = `
     <div class="sectionTitle">
-
       <div>
-        <h2>
-          Archivos para BORRAR al DESACTIVAR
-        </h2>
+        <h2>Archivos para BORRAR al DESACTIVAR</h2>
 
         <p class="muted">
-          Configura archivos que XITFORGE debe eliminar del juego
-          cuando el cliente desactive una opción.
+          Configura una sola regla para uno o ambos Free Fire y
+          aplícala a todas las opciones que selecciones.
         </p>
       </div>
 
-      <button
-        id="newDeleteFileButton"
-        type="button"
-      >
+      <button id="newDeleteFileButton" type="button">
         + Agregar para borrar
       </button>
-
     </div>
 
     <div
       id="deleteFileFormWrap"
       class="originalFormWrap hidden"
     >
-
       <form id="deleteFileForm">
 
-        <div class="originalFormGrid">
+        <label for="deleteFileGame">
+          Aplicar en
+        </label>
 
-          <div>
-            <label for="deleteFileGame">
-              Juego
-            </label>
+        <select id="deleteFileGame" required>
+          <option value="both">
+            AMBOS · Free Fire Normal + MAX
+          </option>
 
-            <select
-              id="deleteFileGame"
-              required
-            >
-              <option value="freefire_normal">
-                Free Fire Normal
-              </option>
+          <option value="freefire_normal">
+            Free Fire Normal
+          </option>
 
-              <option value="freefire_max">
-                Free Fire MAX
-              </option>
-            </select>
-          </div>
+          <option value="freefire_max">
+            Free Fire MAX
+          </option>
+        </select>
 
-          <div>
-            <label for="deleteFileOption">
-              Opción
-            </label>
 
-            <select
-              id="deleteFileOption"
-              required
-            ></select>
-          </div>
+        <label style="margin-top:14px">
+          Opciones
+        </label>
 
+        <div class="xfDeleteBulkActions">
+          <button
+            id="selectAllDeleteOptions"
+            type="button"
+            class="secondary"
+          >
+            Seleccionar todas
+          </button>
+
+          <button
+            id="clearDeleteOptions"
+            type="button"
+            class="secondary"
+          >
+            Quitar todas
+          </button>
         </div>
 
-        <label for="deleteFileRoute">
+        <div
+          id="deleteFileOptionsList"
+          class="xfDeleteOptionBox"
+        ></div>
+
+
+        <label for="deleteFileRoute" style="margin-top:14px">
           Ruta
         </label>
 
@@ -812,9 +530,10 @@
           id="deleteFileRoute"
           type="text"
           maxlength="2048"
-          placeholder="Ej. Documents/contentcache/..."
+          placeholder="Ej. Documents"
           required
         >
+
 
         <label for="deleteFileName">
           Nombre exacto del archivo a borrar
@@ -824,21 +543,19 @@
           id="deleteFileName"
           type="text"
           maxlength="255"
-          placeholder="Ej. archivo_extra.bytes"
+          placeholder="Ej. Assembly-CSharp-patch.bytes"
           required
         >
 
         <p class="fieldHelp">
-          No tienes que subir el archivo. Solo indica la ruta
-          y su nombre exacto. La regla queda vinculada a la opción
-          seleccionada.
+          La misma ruta y archivo se guardarán para cada opción
+          marcada. No tienes que subir ningún archivo original.
         </p>
 
-        <div
-          class="formActions originalFormActions"
-        >
+
+        <div class="formActions originalFormActions">
           <button type="submit">
-            Guardar para borrar
+            Guardar para las seleccionadas
           </button>
 
           <button
@@ -854,456 +571,472 @@
           id="deleteFileFormError"
           class="error"
         ></p>
-
       </form>
-
     </div>
 
     <div id="deleteFilesWrap"></div>
   `;
 
-  originalCard.insertAdjacentElement(
-    'afterend',
-    section
-  );
-
+  originalCard.insertAdjacentElement('afterend', section);
 
   const newDeleteFileButton =
-    document.getElementById(
-      'newDeleteFileButton'
-    );
+    document.getElementById('newDeleteFileButton');
 
   const deleteFileFormWrap =
-    document.getElementById(
-      'deleteFileFormWrap'
-    );
+    document.getElementById('deleteFileFormWrap');
 
   const deleteFileForm =
-    document.getElementById(
-      'deleteFileForm'
-    );
+    document.getElementById('deleteFileForm');
 
   const deleteFileGame =
-    document.getElementById(
-      'deleteFileGame'
-    );
+    document.getElementById('deleteFileGame');
 
-  const deleteFileOption =
-    document.getElementById(
-      'deleteFileOption'
-    );
+  const deleteFileOptionsList =
+    document.getElementById('deleteFileOptionsList');
+
+  const selectAllDeleteOptions =
+    document.getElementById('selectAllDeleteOptions');
+
+  const clearDeleteOptions =
+    document.getElementById('clearDeleteOptions');
 
   const deleteFileRoute =
-    document.getElementById(
-      'deleteFileRoute'
-    );
+    document.getElementById('deleteFileRoute');
 
   const deleteFileName =
-    document.getElementById(
-      'deleteFileName'
-    );
+    document.getElementById('deleteFileName');
 
   const cancelDeleteFileButton =
-    document.getElementById(
-      'cancelDeleteFileButton'
-    );
+    document.getElementById('cancelDeleteFileButton');
 
   const deleteFileFormError =
-    document.getElementById(
-      'deleteFileFormError'
-    );
+    document.getElementById('deleteFileFormError');
 
   const deleteFilesWrap =
-    document.getElementById(
-      'deleteFilesWrap'
-    );
+    document.getElementById('deleteFilesWrap');
 
+  let deleteFilesCache = [];
+  let deleteOptionsCache = [];
 
-  let deleteFilesCache =
-    [];
+  function optionGameMatchesScope(option) {
+    const scope = deleteFileGame.value;
 
-  let deleteOptionsCache =
-    [];
+    if (scope === 'both') {
+      return (
+        option.game === 'freefire_normal' ||
+        option.game === 'freefire_max'
+      );
+    }
 
+    return option.game === scope;
+  }
+
+  function visibleDeleteOptions() {
+    return deleteOptionsCache.filter(optionGameMatchesScope);
+  }
+
+  function renderDeleteOptionChoices() {
+    const items = visibleDeleteOptions();
+
+    if (items.length === 0) {
+      deleteFileOptionsList.innerHTML = `
+        <div class="emptyState compactEmpty">
+          No hay opciones disponibles para este juego.
+        </div>
+      `;
+      return;
+    }
+
+    const groups = [
+      {
+        game: 'freefire_normal',
+        title: 'FREE FIRE NORMAL',
+        items: items.filter(
+          option => option.game === 'freefire_normal'
+        )
+      },
+      {
+        game: 'freefire_max',
+        title: 'FREE FIRE MAX',
+        items: items.filter(
+          option => option.game === 'freefire_max'
+        )
+      }
+    ].filter(group => group.items.length > 0);
+
+    deleteFileOptionsList.innerHTML = groups
+      .map(
+        group => `
+          <div class="xfDeleteGameGroup">
+            <div class="xfDeleteGameTitle">
+              ${escapeHtml(group.title)}
+            </div>
+
+            ${group.items
+              .map(
+                option => `
+                  <label class="xfDeleteChoice">
+                    <input
+                      type="checkbox"
+                      data-delete-option-id="${Number(option.id)}"
+                    >
+
+                    <span>
+                      ${escapeHtml(option.name)}
+
+                      <small>
+                        ${
+                          option.category === 'aimbot'
+                            ? 'Aimbot'
+                            : option.category === 'fps'
+                              ? 'Extras / FPS'
+                              : 'Holograma'
+                        }
+                      </small>
+                    </span>
+                  </label>
+                `
+              )
+              .join('')}
+          </div>
+        `
+      )
+      .join('');
+  }
+
+  function selectedOptionIds() {
+    return Array.from(
+      deleteFileOptionsList.querySelectorAll(
+        'input[data-delete-option-id]:checked'
+      )
+    )
+      .map(input => Number(input.dataset.deleteOptionId))
+      .filter(id => Number.isSafeInteger(id) && id > 0);
+  }
 
   async function loadDeleteOptions() {
-    const data =
-      await api(
-        '/api/admin/options'
-      );
-
-    deleteOptionsCache =
-      data.options || [];
-
+    const data = await api('/api/admin/options');
+    deleteOptionsCache = data.options || [];
     renderDeleteOptionChoices();
   }
 
-
-  function renderDeleteOptionChoices() {
-    const game =
-      deleteFileGame.value;
-
-    const items =
-      deleteOptionsCache
-        .filter(
-          option =>
-            option.game === game
-        );
-
-    if (
-      items.length === 0
-    ) {
-      deleteFileOption.innerHTML =
-        `
-          <option value="">
-            No hay opciones para este juego
-          </option>
-        `;
-
-      deleteFileOption.disabled =
-        true;
-
-      return;
-    }
-
-    deleteFileOption.disabled =
-      false;
-
-    deleteFileOption.innerHTML =
-      items
-        .map(
-          option =>
-            `
-              <option
-                value="${Number(option.id)}"
-              >
-                ${escapeHtml(option.name)}
-              </option>
-            `
-        )
-        .join('');
-  }
-
-
   async function loadDeleteFiles() {
     try {
-      const data =
-        await api(
-          '/api/admin/delete-files'
-        );
-
-      deleteFilesCache =
-        data.deleteFiles || [];
-
+      const data = await api('/api/admin/delete-files');
+      deleteFilesCache = data.deleteFiles || [];
       renderDeleteFiles();
-
     } catch (error) {
-      deleteFilesWrap.innerHTML =
-        `
-          <div class="emptyState error">
-            ${escapeHtml(error.message)}
-          </div>
-        `;
+      deleteFilesWrap.innerHTML = `
+        <div class="emptyState error">
+          ${escapeHtml(error.message)}
+        </div>
+      `;
     }
   }
 
+  function groupedDeleteFiles() {
+    const map = new Map();
+
+    for (const item of deleteFilesCache) {
+      const route = String(item.route || '').trim();
+      const fileName = String(item.fileName || '').trim();
+
+      const key =
+        `${route.toLowerCase()}|${fileName.toLowerCase()}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          route,
+          fileName,
+          items: []
+        });
+      }
+
+      map.get(key).items.push(item);
+    }
+
+    return Array.from(map.values());
+  }
 
   function renderDeleteFiles() {
-    if (
-      deleteFilesCache.length === 0
-    ) {
-      deleteFilesWrap.innerHTML =
-        `
-          <div class="emptyState compactEmpty">
-            Todavía no hay archivos configurados para borrar.
-          </div>
-        `;
+    const groups = groupedDeleteFiles();
 
+    if (groups.length === 0) {
+      deleteFilesWrap.innerHTML = `
+        <div class="emptyState compactEmpty">
+          Todavía no hay archivos configurados para borrar.
+        </div>
+      `;
       return;
     }
 
-    deleteFilesWrap.innerHTML =
-      deleteFilesCache
-        .map(
-          item =>
-            `
-              <div class="originalFileItem">
+    deleteFilesWrap.innerHTML = groups
+      .map((group, index) => {
+        const games = Array.from(
+          new Set(
+            group.items.map(item => item.game)
+          )
+        );
 
-                <div class="originalFileMain">
+        const gameText =
+          games.length > 1
+            ? 'Free Fire Normal + MAX'
+            : gameLabel(games[0]);
 
-                  <strong>
-                    ${escapeHtml(item.fileName)}
-                  </strong>
+        const optionNames = Array.from(
+          new Set(
+            group.items.map(
+              item => item.optionName || 'Opción'
+            )
+          )
+        );
 
-                  <span>
-                    ${escapeHtml(gameLabel(item.game))}
-                    ·
-                    ${escapeHtml(item.optionName || 'Opción')}
-                  </span>
+        return `
+          <div class="originalFileItem">
 
-                  <code>
-                    ${escapeHtml(item.route)}
-                  </code>
+            <div class="originalFileMain">
+              <strong>
+                ${escapeHtml(group.fileName)}
+              </strong>
 
-                </div>
+              <span class="xfDeleteGroupGames">
+                ${escapeHtml(gameText)}
+              </span>
 
-                <div class="originalFileSide">
+              <code>
+                ${escapeHtml(group.route)}
+              </code>
 
-                  <span>
-                    Se borrará al DESACTIVAR
-                  </span>
-
-                  <button
-                    type="button"
-                    class="small danger"
-                    data-delete-rule="${Number(item.id)}"
-                  >
-                    Eliminar regla
-                  </button>
-
-                </div>
-
+              <div class="xfDeleteGroupOptions">
+                ${optionNames
+                  .map(
+                    name =>
+                      `<span>• ${escapeHtml(name)}</span>`
+                  )
+                  .join('')}
               </div>
-            `
-        )
-        .join('');
+            </div>
+
+            <div class="originalFileSide">
+              <span>
+                ${group.items.length} regla${
+                  group.items.length === 1 ? '' : 's'
+                }
+              </span>
+
+              <button
+                type="button"
+                class="small danger"
+                data-delete-group="${index}"
+              >
+                Eliminar grupo
+              </button>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
 
     deleteFilesWrap
-      .querySelectorAll(
-        '[data-delete-rule]'
-      )
-      .forEach(
-        button => {
-          button.addEventListener(
-            'click',
-            async () => {
-              const id =
-                Number(
-                  button.dataset.deleteRule
-                );
+      .querySelectorAll('[data-delete-group]')
+      .forEach(button => {
+        button.addEventListener(
+          'click',
+          async () => {
+            const index = Number(button.dataset.deleteGroup);
+            const groupsNow = groupedDeleteFiles();
+            const group = groupsNow[index];
 
-              const item =
-                deleteFilesCache.find(
-                  value =>
-                    Number(value.id) === id
-                );
+            if (!group) return;
 
-              if (!item) {
-                return;
-              }
-
-              const confirmed =
-                confirm(
-                  `¿Quitar la regla que borra "${item.fileName}" al DESACTIVAR?\n\nEsto solo elimina la regla del panel; no borra nada del teléfono ahora mismo.`
-                );
-
-              if (!confirmed) {
-                return;
-              }
-
-              button.disabled =
-                true;
-
-              try {
-                await api(
-                  `/api/admin/delete-files/${id}`,
-                  {
-                    method: 'DELETE'
-                  }
-                );
-
-                showToast(
-                  'Regla de borrado eliminada'
-                );
-
-                await loadDeleteFiles();
-
-              } catch (error) {
-                button.disabled =
-                  false;
-
-                showToast(
-                  error.message,
-                  'error'
-                );
-              }
-            }
-          );
-        }
-      );
-  }
-
-
-  newDeleteFileButton
-    .addEventListener(
-      'click',
-      async () => {
-        deleteFileFormError
-          .textContent = '';
-
-        deleteFileFormWrap
-          .classList
-          .remove('hidden');
-
-        try {
-          await loadDeleteOptions();
-        } catch (error) {
-          deleteFileFormError
-            .textContent =
-              error.message;
-        }
-
-        deleteFileFormWrap
-          .scrollIntoView({
-            behavior: 'smooth',
-            block: 'nearest'
-          });
-      }
-    );
-
-
-  cancelDeleteFileButton
-    .addEventListener(
-      'click',
-      () => {
-        deleteFileForm
-          .reset();
-
-        deleteFileFormError
-          .textContent = '';
-
-        deleteFileFormWrap
-          .classList
-          .add('hidden');
-
-        renderDeleteOptionChoices();
-      }
-    );
-
-
-  deleteFileGame
-    .addEventListener(
-      'change',
-      renderDeleteOptionChoices
-    );
-
-
-  deleteFileForm
-    .addEventListener(
-      'submit',
-      async event => {
-        event.preventDefault();
-
-        deleteFileFormError
-          .textContent = '';
-
-        const optionId =
-          Number(
-            deleteFileOption.value
-          );
-
-        const route =
-          deleteFileRoute
-            .value
-            .trim();
-
-        const fileName =
-          deleteFileName
-            .value
-            .trim();
-
-        if (
-          !Number.isSafeInteger(optionId) ||
-          optionId < 1
-        ) {
-          deleteFileFormError
-            .textContent =
-              'Selecciona una opción.';
-
-          return;
-        }
-
-        const submitButton =
-          deleteFileForm
-            .querySelector(
-              'button[type="submit"]'
+            const confirmed = confirm(
+              `¿Quitar todas las reglas de "${group.fileName}"?\n\n` +
+              `Se eliminarán ${group.items.length} asociación(es) del panel. ` +
+              `Esto NO borra nada del teléfono en este momento.`
             );
 
-        const oldText =
-          submitButton.textContent;
+            if (!confirmed) return;
 
-        submitButton.disabled =
-          true;
+            button.disabled = true;
 
-        submitButton.textContent =
-          'GUARDANDO...';
+            try {
+              for (const item of group.items) {
+                await api(
+                  `/api/admin/delete-files/${Number(item.id)}`,
+                  { method: 'DELETE' }
+                );
+              }
 
-        try {
+              showToast(
+                'Grupo de reglas de borrado eliminado'
+              );
+
+              await loadDeleteFiles();
+
+            } catch (error) {
+              button.disabled = false;
+              showToast(error.message, 'error');
+            }
+          }
+        );
+      });
+  }
+
+  newDeleteFileButton.addEventListener(
+    'click',
+    async () => {
+      deleteFileFormError.textContent = '';
+      deleteFileForm.reset();
+      deleteFileGame.value = 'both';
+      deleteFileFormWrap.classList.remove('hidden');
+
+      try {
+        await loadDeleteOptions();
+      } catch (error) {
+        deleteFileFormError.textContent = error.message;
+      }
+
+      deleteFileFormWrap.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      });
+    }
+  );
+
+  cancelDeleteFileButton.addEventListener(
+    'click',
+    () => {
+      deleteFileForm.reset();
+      deleteFileGame.value = 'both';
+      deleteFileFormError.textContent = '';
+      deleteFileFormWrap.classList.add('hidden');
+      renderDeleteOptionChoices();
+    }
+  );
+
+  deleteFileGame.addEventListener(
+    'change',
+    () => {
+      renderDeleteOptionChoices();
+    }
+  );
+
+  selectAllDeleteOptions.addEventListener(
+    'click',
+    () => {
+      deleteFileOptionsList
+        .querySelectorAll(
+          'input[data-delete-option-id]'
+        )
+        .forEach(input => {
+          input.checked = true;
+        });
+    }
+  );
+
+  clearDeleteOptions.addEventListener(
+    'click',
+    () => {
+      deleteFileOptionsList
+        .querySelectorAll(
+          'input[data-delete-option-id]'
+        )
+        .forEach(input => {
+          input.checked = false;
+        });
+    }
+  );
+
+  deleteFileForm.addEventListener(
+    'submit',
+    async event => {
+      event.preventDefault();
+
+      deleteFileFormError.textContent = '';
+
+      const optionIds = selectedOptionIds();
+      const route = deleteFileRoute.value.trim();
+      const fileName = deleteFileName.value.trim();
+
+      if (optionIds.length === 0) {
+        deleteFileFormError.textContent =
+          'Selecciona al menos una opción.';
+        return;
+      }
+
+      if (!route) {
+        deleteFileFormError.textContent =
+          'Escribe la ruta.';
+        return;
+      }
+
+      if (!fileName) {
+        deleteFileFormError.textContent =
+          'Escribe el nombre exacto del archivo.';
+        return;
+      }
+
+      const submitButton =
+        deleteFileForm.querySelector(
+          'button[type="submit"]'
+        );
+
+      const oldText = submitButton.textContent;
+
+      submitButton.disabled = true;
+      submitButton.textContent =
+        `GUARDANDO 0/${optionIds.length}...`;
+
+      try {
+        let completed = 0;
+
+        for (const optionId of optionIds) {
           await api(
             '/api/admin/delete-files',
             {
               method: 'POST',
-
-              body:
-                JSON.stringify({
-                  optionId,
-                  route,
-                  fileName
-                })
+              body: JSON.stringify({
+                optionId,
+                route,
+                fileName
+              })
             }
           );
 
-          showToast(
-            'Archivo configurado para borrar al DESACTIVAR'
-          );
-
-          deleteFileForm
-            .reset();
-
-          deleteFileFormWrap
-            .classList
-            .add('hidden');
-
-          renderDeleteOptionChoices();
-
-          await loadDeleteFiles();
-
-        } catch (error) {
-          deleteFileFormError
-            .textContent =
-              error.message;
-
-        } finally {
-          submitButton.disabled =
-            false;
-
+          completed += 1;
           submitButton.textContent =
-            oldText;
+            `GUARDANDO ${completed}/${optionIds.length}...`;
         }
+
+        showToast(
+          `Archivo asociado a ${optionIds.length} opción(es)`
+        );
+
+        deleteFileForm.reset();
+        deleteFileGame.value = 'both';
+        deleteFileFormWrap.classList.add('hidden');
+
+        await loadDeleteFiles();
+        renderDeleteOptionChoices();
+
+      } catch (error) {
+        deleteFileFormError.textContent =
+          error.message;
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = oldText;
       }
-    );
+    }
+  );
 
+  optionsTab.addEventListener(
+    'click',
+    () => {
+      loadDeleteFiles();
+      loadDeleteOptions().catch(() => {});
+    }
+  );
 
-  /*
-   * Cuando el usuario entra a "Opciones", refrescar también
-   * las reglas de borrado.
-   */
-  optionsTab
-    .addEventListener(
-      'click',
-      () => {
-        loadDeleteFiles();
-        loadDeleteOptions()
-          .catch(() => {});
-      }
-    );
-
-
-  /*
-   * Si el panel ya está abierto, dejar la sección lista.
-   */
   loadDeleteFiles();
-  loadDeleteOptions()
-    .catch(() => {});
-
+  loadDeleteOptions().catch(() => {});
 })();
