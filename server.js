@@ -232,11 +232,15 @@ app.use(
  * WARNING: Do not deploy before both IPA variants support this protocol.
  */
 app.use(
-  ['/api/app/options', '/api/app/delete-files'],
+  '/api/app/options',
   licenseAuth.requirePaidSession
 );
-// Restore-only access for a previously authorized device, even after key expiry.
-app.use('/api/app/originals', createOriginalsCleanupAuth(pool));
+
+// Restore/delete-only access for a previously authorized device, even after key expiry.
+app.use(
+  ['/api/app/originals', '/api/app/delete-files'],
+  createOriginalsCleanupAuth(pool)
+);
 
 // The free-key service is permanently disabled on this security branch.
 // Return 410 for all its endpoints without changing the underlying data.
