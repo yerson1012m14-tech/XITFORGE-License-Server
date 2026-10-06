@@ -7,6 +7,7 @@ const { createLicenseAuth } = require('./license-auth');
 const { registerOptionSecurityRoutes } = require('./option-security-routes');
 const { createOriginalsCleanupAuth } = require('./originals-cleanup-auth');
 const { registerOptionsRoutes } = require('./options-routes');
+const { registerOriginalEditRoutes } = require('./original-edit-routes');
 const { registerTwoFileOptionRoutes } = require('./two-files-routes');
 const { registerDeleteFileRoutes } = require('./delete-files-routes');
 const { registerFreeKeyRoutes, licenseDurationSeconds } = require('./free-key-routes');
@@ -2813,6 +2814,8 @@ try {
   optionsDatabaseReady =
     optionsModule.ensureTable();
 
+  registerOriginalEditRoutes({ app, pool, requireAdmin });
+
 } catch (error) {
 
   console.error(
@@ -2895,6 +2898,11 @@ app.get(
         html = html.replace('</body>', '  <script src="/generator-duration.js"></script>\n</body>');
       }
 
+      if (!html.includes('/original-editor.js')) {
+        html = html.replace('</head>', '<link rel="stylesheet" href="/original-editor.css?v=20261006">\n</head>');
+        html = html.replace('</body>', '<script src="/original-editor.js?v=20261006"></script>\n</body>');
+      }
+
       res
         .type('html')
         .send(html);
@@ -2970,3 +2978,4 @@ async function startServer() {
 }
 
 startServer();
+
