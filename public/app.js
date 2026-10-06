@@ -284,6 +284,11 @@ const optionGame =
     'optionGame'
   );
 
+const optionTunnelBundleId =
+  document.getElementById(
+    'optionTunnelBundleId'
+  );
+
 const optionCategory =
   document.getElementById(
     'optionCategory'
@@ -315,6 +320,7 @@ const newOriginalButton = document.getElementById('newOriginalButton');
 const originalFormWrap = document.getElementById('originalFormWrap');
 const originalForm = document.getElementById('originalForm');
 const originalGame = document.getElementById('originalGame');
+const originalTunnelBundleId = document.getElementById('originalTunnelBundleId');
 const originalRoute = document.getElementById('originalRoute');
 const originalFiles = document.getElementById('originalFiles');
 const cancelOriginalButton = document.getElementById('cancelOriginalButton');
@@ -1932,6 +1938,7 @@ originalForm.addEventListener('submit', async event => {
   const files = Array.from(originalFiles.files || []);
   const route = originalRoute.value.trim();
   const game = originalGame.value;
+  const tunnelBundleId = originalTunnelBundleId.value.trim();
 
   if (!files.length) {
     originalFormError.textContent = 'Selecciona al menos un archivo.';
@@ -1952,7 +1959,13 @@ originalForm.addEventListener('submit', async event => {
       }
 
       submitButton.textContent = `Subiendo ${i + 1}/${files.length}...`;
-      await uploadOriginalFile({ game, route, file, sortOrder: i });
+      await uploadOriginalFile({
+        game,
+        tunnelBundleId,
+        route,
+        file,
+        sortOrder: i
+      });
     }
 
     showToast(
@@ -1972,13 +1985,20 @@ originalForm.addEventListener('submit', async event => {
   }
 });
 
-async function uploadOriginalFile({ game, route, file, sortOrder }) {
+async function uploadOriginalFile({
+  game,
+  tunnelBundleId,
+  route,
+  file,
+  sortOrder
+}) {
   const response = await fetch('/api/admin/original-files', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/octet-stream',
       'X-Game': game,
+      'X-Tunnel-Bundle-Id': tunnelBundleId || '',
       'X-Route': route,
       'X-File-Name': file.name,
       'X-File-Mime': file.type || 'application/octet-stream',
@@ -2027,6 +2047,11 @@ function renderOriginalFiles() {
       <div class="originalFileMain">
         <strong>${escapeHtml(item.fileName || 'Archivo')}</strong>
         <span>${escapeHtml(gameLabel(item.game))}</span>
+        ${
+          item.tunnelBundleId
+            ? `<code>Bundle Tunnel V2: ${escapeHtml(item.tunnelBundleId)}</code>`
+            : '<span class="muted">Bundle Tunnel V2: sin configurar</span>'
+        }
         <code>${escapeHtml(item.route || '')}</code>
       </div>
       <div class="originalFileSide">
@@ -2118,6 +2143,9 @@ optionForm.addEventListener(
 
         game:
           optionGame.value,
+
+        tunnelBundleId:
+          optionTunnelBundleId.value.trim(),
 
         category:
           optionCategory.value,
@@ -2337,6 +2365,9 @@ function openOptionForm(
       option.game ||
       'freefire_normal';
 
+    optionTunnelBundleId.value =
+      option.tunnelBundleId || '';
+
     optionCategory.value =
       option.category ||
       'holograma';
@@ -2363,6 +2394,9 @@ function openOptionForm(
 
     optionGame.value =
       'freefire_normal';
+
+    optionTunnelBundleId.value =
+      '';
 
     optionCategory.value =
       'holograma';
@@ -2595,6 +2629,20 @@ function renderOptions() {
                   ${gameLabel(
                     option.game
                   )}
+                </span>
+
+
+                <span>
+                  <strong>
+                    Bundle Tunnel V2:
+                  </strong>
+
+                  <code>
+                    ${escapeHtml(
+                      option.tunnelBundleId ||
+                      'Sin configurar'
+                    )}
+                  </code>
                 </span>
 
 

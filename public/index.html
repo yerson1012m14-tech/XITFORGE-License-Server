@@ -518,6 +518,19 @@
                 </div>
 
                 <div>
+                  <label for="originalTunnelBundleId">Bundle ID para Tunnel V2</label>
+                  <input
+                    id="originalTunnelBundleId"
+                    type="text"
+                    maxlength="255"
+                    placeholder="Ej. com.jasonxit.miapp"
+                    autocomplete="off"
+                    autocapitalize="none"
+                    spellcheck="false"
+                  >
+                </div>
+
+                <div>
                   <label for="originalRoute">Ruta</label>
                   <input
                     id="originalRoute"
@@ -540,6 +553,7 @@
               <p class="fieldHelp">
                 Puedes seleccionar varios a la vez. El nombre de cada archivo será
                 el nombre exacto que DESACTIVAR restaurará. Máximo 32 MB por archivo.
+                El Bundle ID Tunnel V2 es opcional y no cambia el comportamiento de la IPA normal.
               </p>
 
               <div class="formActions originalFormActions">
@@ -645,6 +659,26 @@
               </option>
 
             </select>
+
+
+            <label for="optionTunnelBundleId">
+              Bundle ID para Tunnel V2
+            </label>
+
+            <input
+              id="optionTunnelBundleId"
+              type="text"
+              maxlength="255"
+              placeholder="Ej. com.jasonxit.miapp"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+            >
+
+            <p class="fieldHelp">
+              Opcional. Solo lo usará la IPA Tunnel V2.
+              La IPA normal sigue usando su Bundle ID actual y no depende de este campo.
+            </p>
 
 
             <label for="optionCategory">
