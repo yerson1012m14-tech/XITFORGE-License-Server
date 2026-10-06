@@ -1,0 +1,17 @@
+{
+  "options-routes.js": {
+    "ok": true,
+    "stderr": ""
+  },
+  "public/app.js": {
+    "ok": true,
+    "stderr": ""
+  },
+  "compatibility": {
+    "legacy bundleId public": true,
+    "legacy bundleId row": true,
+    "new field backend": true,
+    "new field panel js": true,
+    "new field html": true
+  }
+}

@@ -27,6 +27,25 @@ function normalizeGame(value) {
   return null;
 }
 
+function normalizeTunnelBundleId(value) {
+  const bundleId = normalizeText(value, 255);
+
+  if (!bundleId) {
+    return null;
+  }
+
+  if (
+    bundleId.startsWith('.') ||
+    bundleId.endsWith('.') ||
+    bundleId.includes('..') ||
+    !/^[A-Za-z0-9.-]+$/.test(bundleId)
+  ) {
+    return null;
+  }
+
+  return bundleId;
+}
+
 function normalizeCategory(value) {
   const category = normalizeText(value, 32).toLowerCase();
 
@@ -82,6 +101,8 @@ function registerOptionsRoutes({
 
         game TEXT NOT NULL,
 
+        tunnel_bundle_id TEXT,
+
         category TEXT NOT NULL
           DEFAULT 'holograma',
 
@@ -131,6 +152,9 @@ function registerOptionsRoutes({
      */
     await pool.query(`
       ALTER TABLE app_options
+        ADD COLUMN IF NOT EXISTS tunnel_bundle_id TEXT;
+
+      ALTER TABLE app_options
         ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'holograma';
 
       ALTER TABLE app_options
@@ -165,6 +189,7 @@ function registerOptionsRoutes({
       CREATE TABLE IF NOT EXISTS app_original_files (
         id BIGSERIAL PRIMARY KEY,
         game TEXT NOT NULL,
+        tunnel_bundle_id TEXT,
         route TEXT NOT NULL,
         target_file_name TEXT NOT NULL,
         source_file_name TEXT NOT NULL,
@@ -179,6 +204,11 @@ function registerOptionsRoutes({
         CONSTRAINT app_original_files_unique_target
           UNIQUE (game, route, target_file_name)
       );
+    `);
+
+    await pool.query(`
+      ALTER TABLE app_original_files
+        ADD COLUMN IF NOT EXISTS tunnel_bundle_id TEXT;
     `);
 
     await pool.query(`
@@ -247,6 +277,7 @@ function registerOptionsRoutes({
               name,
               description,
               game,
+              tunnel_bundle_id,
               category,
               route,
               file_name,
@@ -272,6 +303,7 @@ function registerOptionsRoutes({
             game: row.game,
             category: row.category || 'holograma',
             bundleId: GAME_MAP[row.game],
+            tunnelBundleId: row.tunnel_bundle_id || null,
             route: row.route,
             fileName: row.file_name,
             mimeType: row.mime_type,
@@ -333,6 +365,18 @@ function registerOptionsRoutes({
           normalizeCategory(
             req.body.category
           );
+
+        const tunnelBundleId =
+          req.body.tunnelBundleId
+            ? normalizeTunnelBundleId(req.body.tunnelBundleId)
+            : null;
+
+        if (req.body.tunnelBundleId && !tunnelBundleId) {
+          return res.status(400).json({
+            ok: false,
+            error: 'tunnelBundleId is invalid'
+          });
+        }
 
         const route =
           validateRoute(
@@ -405,6 +449,7 @@ function registerOptionsRoutes({
                   name,
                   description,
                   game,
+                  tunnel_bundle_id,
                   category,
                   route,
                   enabled,
@@ -419,16 +464,18 @@ function registerOptionsRoutes({
                   $3,
                   $4,
                   $5,
-                  TRUE,
                   $6,
+                  TRUE,
                   $7,
-                  $7
+                  $8,
+                  $8
                 )
               RETURNING
                 id,
                 name,
                 description,
                 game,
+                tunnel_bundle_id,
                 category,
                 route,
                 enabled,
@@ -440,6 +487,7 @@ function registerOptionsRoutes({
               name,
               description,
               game,
+              tunnelBundleId,
               category,
               route,
               sortOrder,
@@ -473,6 +521,9 @@ function registerOptionsRoutes({
 
               bundleId:
                 GAME_MAP[row.game],
+
+              tunnelBundleId:
+                row.tunnel_bundle_id || null,
 
               route:
                 row.route,
@@ -585,6 +636,18 @@ function registerOptionsRoutes({
             req.body.category
           );
 
+        const tunnelBundleId =
+          req.body.tunnelBundleId
+            ? normalizeTunnelBundleId(req.body.tunnelBundleId)
+            : null;
+
+        if (req.body.tunnelBundleId && !tunnelBundleId) {
+          return res.status(400).json({
+            ok: false,
+            error: 'tunnelBundleId is invalid'
+          });
+        }
+
         const route =
           validateRoute(
             req.body.route
@@ -625,16 +688,18 @@ function registerOptionsRoutes({
                 name = $1,
                 description = $2,
                 game = $3,
-                category = $4,
-                route = $5,
-                sort_order = $6,
-                updated_at = $7
-              WHERE id = $8
+                tunnel_bundle_id = $4,
+                category = $5,
+                route = $6,
+                sort_order = $7,
+                updated_at = $8
+              WHERE id = $9
               RETURNING
                 id,
                 name,
                 description,
                 game,
+                tunnel_bundle_id,
                 category,
                 route,
                 enabled,
@@ -645,6 +710,7 @@ function registerOptionsRoutes({
               name,
               description,
               game,
+              tunnelBundleId,
               category,
               route,
               sortOrder,
@@ -690,6 +756,9 @@ function registerOptionsRoutes({
 
             bundleId:
               GAME_MAP[row.game],
+
+            tunnelBundleId:
+              row.tunnel_bundle_id || null,
 
             route:
               row.route,
@@ -1226,7 +1295,7 @@ function registerOptionsRoutes({
       try {
         const result = await pool.query(`
           SELECT
-            id, game, route, target_file_name, source_file_name,
+            id, game, tunnel_bundle_id, route, target_file_name, source_file_name,
             mime_type, file_size, sort_order, created_at, updated_at
           FROM app_original_files
           ORDER BY game ASC, sort_order ASC, id ASC
@@ -1238,6 +1307,7 @@ function registerOptionsRoutes({
             id: Number(row.id),
             game: row.game,
             bundleId: GAME_MAP[row.game],
+            tunnelBundleId: row.tunnel_bundle_id || null,
             route: row.route,
             fileName: row.target_file_name,
             sourceFileName: row.source_file_name,
@@ -1276,6 +1346,10 @@ function registerOptionsRoutes({
         }
 
         const game = normalizeGame(req.get('x-game'));
+        const tunnelBundleHeader = normalizeText(req.get('x-tunnel-bundle-id'), 255);
+        const tunnelBundleId = tunnelBundleHeader
+          ? normalizeTunnelBundleId(tunnelBundleHeader)
+          : null;
         const route = validateRoute(req.get('x-route'));
         const fileName = normalizeText(req.get('x-file-name'), 255);
         const mimeType = normalizeText(
@@ -1289,6 +1363,10 @@ function registerOptionsRoutes({
 
         if (!game) {
           return res.status(400).json({ ok: false, error: 'Juego inválido' });
+        }
+
+        if (tunnelBundleHeader && !tunnelBundleId) {
+          return res.status(400).json({ ok: false, error: 'Bundle ID Tunnel V2 inválido' });
         }
 
         if (!route) {
@@ -1306,12 +1384,13 @@ function registerOptionsRoutes({
 
         const result = await pool.query(`
           INSERT INTO app_original_files (
-            game, route, target_file_name, source_file_name,
+            game, tunnel_bundle_id, route, target_file_name, source_file_name,
             mime_type, file_size, file_data, sort_order, created_at, updated_at
           )
-          VALUES ($1,$2,$3,$3,$4,$5,$6,$7,$8,$8)
+          VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$9)
           ON CONFLICT (game, route, target_file_name)
           DO UPDATE SET
+            tunnel_bundle_id = EXCLUDED.tunnel_bundle_id,
             source_file_name = EXCLUDED.source_file_name,
             mime_type = EXCLUDED.mime_type,
             file_size = EXCLUDED.file_size,
@@ -1319,10 +1398,10 @@ function registerOptionsRoutes({
             sort_order = EXCLUDED.sort_order,
             updated_at = EXCLUDED.updated_at
           RETURNING
-            id, game, route, target_file_name, source_file_name,
+            id, game, tunnel_bundle_id, route, target_file_name, source_file_name,
             mime_type, file_size, sort_order, created_at, updated_at
         `, [
-          game, route, fileName, mimeType, buffer.length, buffer,
+          game, tunnelBundleId, route, fileName, mimeType, buffer.length, buffer,
           sortOrder, now
         ]);
 
@@ -1333,6 +1412,7 @@ function registerOptionsRoutes({
             id: Number(row.id),
             game: row.game,
             bundleId: GAME_MAP[row.game],
+            tunnelBundleId: row.tunnel_bundle_id || null,
             route: row.route,
             fileName: row.target_file_name,
             sourceFileName: row.source_file_name,
@@ -1401,7 +1481,7 @@ function registerOptionsRoutes({
 
         const result = await pool.query(`
           SELECT
-            id, name, description, game, category, route, file_name, file_size, updated_at
+            id, name, description, game, tunnel_bundle_id, category, route, file_name, file_size, updated_at
           FROM app_options
           WHERE game = $1
             AND enabled = TRUE
@@ -1419,6 +1499,7 @@ function registerOptionsRoutes({
             game: row.game,
             category: row.category || 'holograma',
             bundleId: GAME_MAP[row.game],
+            tunnelBundleId: row.tunnel_bundle_id || null,
             route: row.route,
             fileName: row.file_name,
             fileSize: Number(row.file_size || 0),
@@ -1457,7 +1538,7 @@ function registerOptionsRoutes({
 
         const result = await pool.query(`
           SELECT
-            id, game, route, target_file_name, source_file_name,
+            id, game, tunnel_bundle_id, route, target_file_name, source_file_name,
             file_size, updated_at
           FROM app_original_files
           WHERE game = $1
@@ -1472,6 +1553,7 @@ function registerOptionsRoutes({
             id: Number(row.id),
             game: row.game,
             bundleId: GAME_MAP[row.game],
+            tunnelBundleId: row.tunnel_bundle_id || null,
             route: row.route,
             fileName: row.target_file_name,
             originalFileName: row.source_file_name,
