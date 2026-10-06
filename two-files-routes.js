@@ -84,6 +84,7 @@ function registerTwoFileOptionRoutes({
             name,
             description,
             game,
+            tunnel_bundle_id,
             category,
             route,
             file_name,
@@ -113,6 +114,7 @@ function registerTwoFileOptionRoutes({
             game: row.game,
             category: row.category || 'holograma',
             bundleId: GAME_MAP[row.game],
+            tunnelBundleId: row.tunnel_bundle_id || null,
             route: row.route,
 
             fileName: row.file_name,
@@ -420,6 +422,7 @@ function registerTwoFileOptionRoutes({
               name,
               description,
               game,
+              tunnel_bundle_id,
               category,
               route,
               file_name,
@@ -486,6 +489,8 @@ function registerTwoFileOptionRoutes({
                 row.category || 'holograma',
               bundleId:
                 GAME_MAP[row.game],
+              tunnelBundleId:
+                row.tunnel_bundle_id || null,
               route: row.route,
 
               // Old contract preserved.
