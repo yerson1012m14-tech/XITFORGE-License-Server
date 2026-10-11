@@ -84,3 +84,434 @@
   window.renderOriginalFiles = function (...args) { const result = render.apply(this, args); attachButtons(); return result; };
   attachButtons();
 })();
+/*
+ * =========================================================
+ * XITFORGE - EDITAR GRUPOS DE BORRADO AL DESACTIVAR
+ * Se ejecuta después de app-extra.js.
+ * =========================================================
+ */
+(() => {
+  'use strict';
+
+  const card = document.getElementById('deleteFilesCard');
+  if (!card) return;
+
+  const wrap = document.getElementById('deleteFilesWrap');
+  const formWrap = document.getElementById('deleteFileFormWrap');
+  const form = document.getElementById('deleteFileForm');
+  const game = document.getElementById('deleteFileGame');
+  const optionList = document.getElementById('deleteFileOptionsList');
+  const route = document.getElementById('deleteFileRoute');
+  const fileName = document.getElementById('deleteFileName');
+  const errorLabel = document.getElementById('deleteFileFormError');
+  const newButton = document.getElementById('newDeleteFileButton');
+  const cancelButton = document.getElementById('cancelDeleteFileButton');
+
+  if (
+    !wrap ||
+    !formWrap ||
+    !form ||
+    !game ||
+    !optionList ||
+    !route ||
+    !fileName ||
+    !errorLabel
+  ) {
+    return;
+  }
+
+  const submitButton =
+    form.querySelector('button[type="submit"]');
+
+  let editingGroup = null;
+  let saving = false;
+
+  function groupedDeleteFiles(items) {
+    const map = new Map();
+
+    for (const item of items || []) {
+      const itemRoute = String(item.route || '').trim();
+      const itemFileName = String(item.fileName || '').trim();
+      const key =
+        `${itemRoute.toLowerCase()}|${itemFileName.toLowerCase()}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          route: itemRoute,
+          fileName: itemFileName,
+          items: []
+        });
+      }
+
+      map.get(key).items.push(item);
+    }
+
+    return Array.from(map.values());
+  }
+
+  function selectedOptionIds() {
+    return Array.from(
+      optionList.querySelectorAll(
+        'input[data-delete-option-id]:checked'
+      )
+    )
+      .map(input => Number(input.dataset.deleteOptionId))
+      .filter(id => Number.isSafeInteger(id) && id > 0);
+  }
+
+  function setSelectedOptionIds(ids) {
+    const selected = new Set(
+      (ids || [])
+        .map(Number)
+        .filter(id => Number.isSafeInteger(id) && id > 0)
+    );
+
+    optionList
+      .querySelectorAll(
+        'input[data-delete-option-id]'
+      )
+      .forEach(input => {
+        input.checked = selected.has(
+          Number(input.dataset.deleteOptionId)
+        );
+      });
+  }
+
+  function groupScope(group) {
+    const games = Array.from(
+      new Set(
+        group.items
+          .map(item => item.game)
+          .filter(Boolean)
+      )
+    );
+
+    if (games.length > 1) {
+      return 'both';
+    }
+
+    return games[0] || 'both';
+  }
+
+  function clearEditMode() {
+    editingGroup = null;
+    errorLabel.textContent = '';
+
+    if (submitButton) {
+      submitButton.textContent =
+        'Guardar para las seleccionadas';
+    }
+  }
+
+  async function refreshDeletePanel() {
+    const optionsTab =
+      document.getElementById('optionsTab');
+
+    if (optionsTab) {
+      optionsTab.dispatchEvent(
+        new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true
+        })
+      );
+    }
+  }
+
+  async function openGroupEditor(index) {
+    if (saving) return;
+
+    errorLabel.textContent = '';
+
+    const data =
+      await api('/api/admin/delete-files');
+
+    const groups =
+      groupedDeleteFiles(data.deleteFiles || []);
+
+    const group = groups[index];
+
+    if (!group) {
+      throw new Error(
+        'Ese grupo cambió. Actualiza la lista e inténtalo otra vez.'
+      );
+    }
+
+    editingGroup = {
+      items: group.items.map(item => ({
+        id: Number(item.id),
+        optionId: Number(item.optionId),
+        route: String(item.route || ''),
+        fileName: String(item.fileName || '')
+      }))
+    };
+
+    form.reset();
+    game.value = groupScope(group);
+    route.value = group.route;
+    fileName.value = group.fileName;
+    formWrap.classList.remove('hidden');
+
+    if (submitButton) {
+      submitButton.textContent = 'Guardar cambios';
+    }
+
+    /*
+     * El listener original de app-extra.js reconstruye
+     * las opciones cuando cambia el juego.
+     */
+    game.dispatchEvent(
+      new Event('change', { bubbles: true })
+    );
+
+    await new Promise(resolve =>
+      requestAnimationFrame(resolve)
+    );
+
+    setSelectedOptionIds(
+      group.items.map(item => item.optionId)
+    );
+
+    formWrap.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest'
+    });
+  }
+
+  function attachEditButtons() {
+    const cards =
+      Array.from(
+        wrap.querySelectorAll('.originalFileItem')
+      );
+
+    cards.forEach((item, index) => {
+      const side =
+        item.querySelector('.originalFileSide');
+
+      const deleteButton =
+        item.querySelector('[data-delete-group]');
+
+      if (
+        !side ||
+        !deleteButton ||
+        side.querySelector('[data-edit-delete-group]')
+      ) {
+        return;
+      }
+
+      const button =
+        document.createElement('button');
+
+      button.type = 'button';
+      button.className = 'small';
+      button.textContent = 'Editar';
+      button.dataset.editDeleteGroup =
+        String(index);
+
+      button.style.marginRight = '6px';
+
+      button.addEventListener(
+        'click',
+        async () => {
+          button.disabled = true;
+
+          try {
+            await openGroupEditor(
+              Number(button.dataset.editDeleteGroup)
+            );
+          } catch (error) {
+            showToast(
+              error.message || 'No se pudo abrir la edición.',
+              'error'
+            );
+          } finally {
+            button.disabled = false;
+          }
+        }
+      );
+
+      deleteButton.before(button);
+    });
+  }
+
+  /*
+   * Captura el submit SOLO cuando estamos editando.
+   * Si es un grupo nuevo, se deja trabajar al código original.
+   */
+  form.addEventListener(
+    'submit',
+    async event => {
+      if (!editingGroup) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      if (saving) return;
+
+      errorLabel.textContent = '';
+
+      const optionIds = selectedOptionIds();
+      const newRoute = route.value.trim();
+      const newFileName = fileName.value.trim();
+
+      if (optionIds.length === 0) {
+        errorLabel.textContent =
+          'Selecciona al menos una opción.';
+        return;
+      }
+
+      if (!newRoute) {
+        errorLabel.textContent =
+          'Escribe la ruta.';
+        return;
+      }
+
+      if (!newFileName) {
+        errorLabel.textContent =
+          'Escribe el nombre exacto del archivo.';
+        return;
+      }
+
+      const snapshot = {
+        items: editingGroup.items.map(
+          item => ({ ...item })
+        )
+      };
+
+      const oldText =
+        submitButton
+          ? submitButton.textContent
+          : '';
+
+      saving = true;
+
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent =
+          `GUARDANDO 0/${optionIds.length}...`;
+      }
+
+      try {
+        let completed = 0;
+
+        /*
+         * Primero crea/actualiza las reglas nuevas.
+         * Así, si algo falla, las reglas anteriores
+         * todavía no se han eliminado.
+         */
+        for (const optionId of optionIds) {
+          await api(
+            '/api/admin/delete-files',
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                optionId,
+                route: newRoute,
+                fileName: newFileName
+              })
+            }
+          );
+
+          completed += 1;
+
+          if (submitButton) {
+            submitButton.textContent =
+              `GUARDANDO ${completed}/${optionIds.length}...`;
+          }
+        }
+
+        const desiredRules = new Set(
+          optionIds.map(
+            optionId =>
+              String(optionId) +
+              '\u0000' +
+              newRoute +
+              '\u0000' +
+              newFileName
+          )
+        );
+
+        /*
+         * Borra únicamente las asociaciones anteriores
+         * que ya no forman parte del grupo editado.
+         */
+        for (const oldItem of snapshot.items) {
+          const oldKey =
+            String(oldItem.optionId) +
+            '\u0000' +
+            oldItem.route +
+            '\u0000' +
+            oldItem.fileName;
+
+          if (!desiredRules.has(oldKey)) {
+            await api(
+              `/api/admin/delete-files/${Number(oldItem.id)}`,
+              { method: 'DELETE' }
+            );
+          }
+        }
+
+        showToast(
+          'Grupo de borrado actualizado'
+        );
+
+        clearEditMode();
+        form.reset();
+        game.value = 'both';
+        formWrap.classList.add('hidden');
+
+        await refreshDeletePanel();
+
+      } catch (error) {
+        errorLabel.textContent =
+          error.message ||
+          'No se pudo guardar la edición.';
+      } finally {
+        saving = false;
+
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.textContent =
+            editingGroup
+              ? 'Guardar cambios'
+              : 'Guardar para las seleccionadas';
+        }
+      }
+    },
+    true
+  );
+
+  /*
+   * Al abrir "Agregar para borrar" se sale
+   * del modo edición y vuelve al comportamiento normal.
+   */
+  if (newButton) {
+    newButton.addEventListener(
+      'click',
+      clearEditMode,
+      true
+    );
+  }
+
+  if (cancelButton) {
+    cancelButton.addEventListener(
+      'click',
+      clearEditMode,
+      true
+    );
+  }
+
+  const observer =
+    new MutationObserver(attachEditButtons);
+
+  observer.observe(
+    wrap,
+    {
+      childList: true,
+      subtree: true
+    }
+  );
+
+  attachEditButtons();
+})();
