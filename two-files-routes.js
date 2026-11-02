@@ -37,6 +37,22 @@ function normalizeId(value) {
   return id;
 }
 
+function normalizeFile2Route(value) {
+  if (typeof value !== 'string' || value.length > 4096) {
+    throw new Error('La ruta del archivo 2 no es válida.');
+  }
+  const route = value.trim().replace(/\/+$/, '');
+  if (!route) {
+    if (value.trim()) throw new Error('Usa una ruta relativa dentro del contenedor del juego.');
+    return null;
+  }
+  if (/^[\/]|[\\:\x00-\x1f\x7f]/.test(route) ||
+      route.split('/').some(part => !part || part === '.' || part === '..')) {
+    throw new Error('Usa una ruta relativa dentro del contenedor del juego, sin puntos ni carpetas vacías.');
+  }
+  return route;
+}
+
 function registerTwoFileOptionRoutes({
   app,
   pool,
@@ -56,6 +72,9 @@ function registerTwoFileOptionRoutes({
 
       ALTER TABLE app_options
         ADD COLUMN IF NOT EXISTS file2_data BYTEA;
+
+      ALTER TABLE app_options
+        ADD COLUMN IF NOT EXISTS file2_route TEXT;
     `);
 
     console.log(
@@ -91,6 +110,7 @@ function registerTwoFileOptionRoutes({
             mime_type,
             file_size,
             file2_name,
+            file2_route,
             file2_mime_type,
             file2_size,
             enabled,
@@ -123,6 +143,7 @@ function registerTwoFileOptionRoutes({
             hasFile: Boolean(row.has_file),
 
             file2Name: row.file2_name,
+            file2Route: row.file2_route || '',
             file2MimeType: row.file2_mime_type,
             file2Size: Number(row.file2_size || 0),
             hasFile2: Boolean(row.has_file2),
@@ -146,6 +167,28 @@ function registerTwoFileOptionRoutes({
       }
     }
   );
+
+  app.put('/api/admin/options/:id/file2-route', requireAdmin, async (req, res) => {
+    const id = normalizeId(req.params.id);
+    if (!id) return res.status(400).json({ ok: false, error: 'Invalid option id' });
+    let route;
+    try {
+      route = normalizeFile2Route(req.body?.file2Route);
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message });
+    }
+    try {
+      const result = await pool.query(`
+        UPDATE app_options SET file2_route = $1, updated_at = NOW()
+        WHERE id = $2 RETURNING id, file2_route
+      `, [route, id]);
+      if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Option not found' });
+      res.json({ ok: true, file2Route: result.rows[0].file2_route || '' });
+    } catch (error) {
+      console.error('Update second file route error:', error);
+      res.status(500).json({ ok: false, error: 'Database error' });
+    }
+  });
 
   /*
    * =========================================================
@@ -429,6 +472,7 @@ function registerTwoFileOptionRoutes({
               file_size,
               file2_name,
               file2_size,
+              file2_route,
               updated_at,
               (file_data IS NOT NULL) AS has_file,
               (file2_data IS NOT NULL) AS has_file2
@@ -464,6 +508,7 @@ function registerTwoFileOptionRoutes({
               files.push({
                 slot: 1,
                 fileName: row.file_name,
+                route: row.route,
                 fileSize:
                   Number(row.file_size || 0),
                 fileUrl: file1Url
@@ -474,6 +519,7 @@ function registerTwoFileOptionRoutes({
               files.push({
                 slot: 2,
                 fileName: row.file2_name,
+                route: row.file2_route || row.route,
                 fileSize:
                   Number(row.file2_size || 0),
                 fileUrl: file2Url
@@ -501,6 +547,7 @@ function registerTwoFileOptionRoutes({
 
               // New optional second file.
               file2Name: row.file2_name,
+              file2Route: row.file2_route || row.route,
               file2Size:
                 Number(row.file2_size || 0),
               file2Url:
@@ -623,3 +670,4 @@ function registerTwoFileOptionRoutes({
 module.exports = {
   registerTwoFileOptionRoutes
 };
+

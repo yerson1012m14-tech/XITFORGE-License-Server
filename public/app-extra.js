@@ -39,6 +39,21 @@
 
   const optionFile2 = secondFileInput;
 
+  const route2Label = document.createElement('label');
+  route2Label.htmlFor = 'optionFile2Route';
+  route2Label.textContent = 'Ruta del archivo 2 (opcional)';
+  const optionFile2Route = document.createElement('input');
+  optionFile2Route.id = 'optionFile2Route';
+  optionFile2Route.type = 'text';
+  optionFile2Route.maxLength = 4096;
+  optionFile2Route.placeholder = 'Ejemplo: Documents/record';
+  const route2Help = document.createElement('p');
+  route2Help.className = 'fieldHelp';
+  route2Help.textContent = 'Carpeta relativa dentro del contenedor del juego. Si la dejas vacía, se usará la ruta del archivo 1.';
+  for (const element of [route2Label, optionFile2Route, route2Help]) {
+    sortLabel.parentNode.insertBefore(element, sortLabel);
+  }
+
   async function uploadOptionFileSlot(id, file, slot) {
     if (!file) return;
 
@@ -95,6 +110,12 @@
 
       try {
         const id = optionId.value.trim();
+        const file2Route = optionFile2Route.value.trim().replace(/\/+$/, '');
+        if (optionFile2Route.value.trim() && (!file2Route ||
+            /^[\/]|[\\:\x00-\x1f\x7f]/.test(file2Route) ||
+            file2Route.split('/').some(part => !part || part === '.' || part === '..'))) {
+          throw new Error('La ruta del archivo 2 debe ser relativa, sin puntos ni carpetas vacías.');
+        }
 
         const payload = {
           name: optionName.value.trim(),
@@ -127,6 +148,12 @@
           throw new Error('No se pudo obtener el ID de la opción.');
         }
 
+        optionId.value = targetId;
+        await api(`/api/admin/options/${targetId}/file2-route`, {
+          method: 'PUT',
+          body: JSON.stringify({ file2Route })
+        });
+
         const firstFile = optionFile.files[0] || null;
         const secondFile = optionFile2.files[0] || null;
 
@@ -157,6 +184,7 @@
   openOptionForm = function (option = null) {
     originalOpenOptionForm(option);
     optionFile2.value = '';
+    optionFile2Route.value = option?.file2Route || '';
   };
 
   const originalCloseOptionForm = closeOptionForm;
@@ -164,6 +192,7 @@
   closeOptionForm = function () {
     originalCloseOptionForm();
     optionFile2.value = '';
+    optionFile2Route.value = '';
   };
 
   renderOptions = function () {
@@ -242,6 +271,10 @@
                     ? escapeHtml(option.file2Name || 'Archivo modificado')
                     : 'Sin archivo'
                 }
+              </span>
+              <span>
+                <strong>Ruta del archivo 2:</strong>
+                <code>${escapeHtml(option.file2Route || option.route)}</code>
               </span>
             </div>
 
@@ -1040,3 +1073,4 @@
   loadDeleteFiles();
   loadDeleteOptions().catch(() => {});
 })();
+
