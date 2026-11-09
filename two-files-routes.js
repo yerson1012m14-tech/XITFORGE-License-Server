@@ -6,6 +6,9 @@ const GAME_MAP = Object.freeze({
   freefire_max: 'com.dts.freefiremax'
 });
 
+const MAX_FILE_BYTES = 32 * 1024 * 1024;
+const BINARY_MIME = 'application/octet-stream';
+
 function normalizeText(value, maxLength) {
   return String(value || '')
     .trim()
@@ -37,9 +40,9 @@ function normalizeId(value) {
   return id;
 }
 
-function normalizeFile2Route(value) {
+function normalizeOptionalFileRoute(value, slot) {
   if (typeof value !== 'string' || value.length > 4096) {
-    throw new Error('La ruta del archivo 2 no es válida.');
+    throw new Error('La ruta del archivo ' + slot + ' no es válida.');
   }
   const route = value.trim().replace(/\/+$/, '');
   if (!route) {
@@ -51,6 +54,20 @@ function normalizeFile2Route(value) {
     throw new Error('Usa una ruta relativa dentro del contenedor del juego, sin puntos ni carpetas vacías.');
   }
   return route;
+}
+
+function normalizeThirdFileName(value) {
+  const name = String(value ?? 'file3.bin').trim();
+  if (!name || name === '.' || name === '..' ||
+      Buffer.byteLength(name) > 255 || /[\/\\:"\x00-\x1f\x7f]/.test(name)) {
+    return null;
+  }
+  return name;
+}
+
+function normalizeFileMime(value) {
+  const mime = normalizeText(value, 120);
+  return /^[\w!#$&^.+-]+\/[\w!#$&^.+-]+$/.test(mime) ? mime : BINARY_MIME;
 }
 
 function registerTwoFileOptionRoutes({
@@ -75,10 +92,17 @@ function registerTwoFileOptionRoutes({
 
       ALTER TABLE app_options
         ADD COLUMN IF NOT EXISTS file2_route TEXT;
+
+      ALTER TABLE app_options
+        ADD COLUMN IF NOT EXISTS file3_name TEXT,
+        ADD COLUMN IF NOT EXISTS file3_mime_type TEXT,
+        ADD COLUMN IF NOT EXISTS file3_size BIGINT NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS file3_data BYTEA,
+        ADD COLUMN IF NOT EXISTS file3_route TEXT;
     `);
 
     console.log(
-      'PostgreSQL second option-file columns initialized.'
+      'PostgreSQL optional option-file columns initialized.'
     );
   }
 
@@ -87,7 +111,7 @@ function registerTwoFileOptionRoutes({
    * ADMIN - LIST OPTIONS
    *
    * Registered before the original options-routes.js GET route
-   * so the panel receives both file slots without changing the
+   * so the panel receives all file slots without changing the
    * existing create/edit/status logic.
    * =========================================================
    */
@@ -113,12 +137,17 @@ function registerTwoFileOptionRoutes({
             file2_route,
             file2_mime_type,
             file2_size,
+            file3_name,
+            file3_route,
+            file3_mime_type,
+            file3_size,
             enabled,
             sort_order,
             created_at,
             updated_at,
             (file_data IS NOT NULL) AS has_file,
-            (file2_data IS NOT NULL) AS has_file2
+            (file2_data IS NOT NULL) AS has_file2,
+            (file3_data IS NOT NULL) AS has_file3
           FROM app_options
           ORDER BY
             sort_order ASC,
@@ -148,6 +177,12 @@ function registerTwoFileOptionRoutes({
             file2Size: Number(row.file2_size || 0),
             hasFile2: Boolean(row.has_file2),
 
+            file3Name: row.file3_name,
+            file3Route: row.file3_route || '',
+            file3MimeType: row.file3_mime_type,
+            file3Size: Number(row.file3_size || 0),
+            hasFile3: Boolean(row.has_file3),
+
             enabled: Boolean(row.enabled),
             sortOrder: Number(row.sort_order || 0),
             createdAt: row.created_at,
@@ -156,7 +191,7 @@ function registerTwoFileOptionRoutes({
         });
       } catch (error) {
         console.error(
-          'List two-file app options error:',
+          'List app options with optional files error:',
           error
         );
 
@@ -173,7 +208,7 @@ function registerTwoFileOptionRoutes({
     if (!id) return res.status(400).json({ ok: false, error: 'Invalid option id' });
     let route;
     try {
-      route = normalizeFile2Route(req.body?.file2Route);
+      route = normalizeOptionalFileRoute(req.body?.file2Route, 2);
     } catch (error) {
       return res.status(400).json({ ok: false, error: error.message });
     }
@@ -187,6 +222,106 @@ function registerTwoFileOptionRoutes({
     } catch (error) {
       console.error('Update second file route error:', error);
       res.status(500).json({ ok: false, error: 'Database error' });
+    }
+  });
+
+  app.put('/api/admin/options/:id/file3-route', requireAdmin, async (req, res) => {
+    const id = normalizeId(req.params.id);
+    if (!id) return res.status(400).json({ ok: false, error: 'Invalid option id' });
+    let route;
+    try {
+      route = normalizeOptionalFileRoute(req.body?.file3Route, 3);
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message });
+    }
+    try {
+      const { rows } = await pool.query(
+        'UPDATE app_options SET file3_route = $1, updated_at = NOW() ' +
+        'WHERE id = $2 RETURNING file3_route',
+        [route, id]
+      );
+      if (!rows.length) return res.status(404).json({ ok: false, error: 'Option not found' });
+      return res.json({ ok: true, file3Route: rows[0].file3_route || '' });
+    } catch (error) {
+      console.error('Update third file route error:', error);
+      return res.status(500).json({ ok: false, error: 'Database error' });
+    }
+  });
+
+  app.post(
+    '/api/admin/options/:id/file3',
+    requireAdmin,
+    express.raw({ type: BINARY_MIME, limit: '32mb' }),
+    async (req, res) => {
+      const id = normalizeId(req.params.id);
+      if (!id) return res.status(400).json({ ok: false, error: 'Invalid option id' });
+
+      const buffer = req.body;
+      if (!Buffer.isBuffer(buffer) || !buffer.length) {
+        return res.status(400).json({ ok: false, error: 'File is empty' });
+      }
+      if (buffer.length > MAX_FILE_BYTES) {
+        return res.status(413).json({ ok: false, error: 'El archivo 3 supera 32 MB.' });
+      }
+
+      const fileName = normalizeThirdFileName(req.get('x-file-name'));
+      if (!fileName) {
+        return res.status(400).json({ ok: false, error: 'El nombre del archivo 3 no es válido.' });
+      }
+      const mimeType = normalizeFileMime(req.get('x-file-mime'));
+      const routeHeader = req.get('x-file-route');
+      let route = null;
+      try {
+        if (routeHeader !== undefined) {
+          route = normalizeOptionalFileRoute(decodeURIComponent(routeHeader), 3);
+        }
+      } catch (error) {
+        return res.status(400).json({ ok: false, error: 'La ruta del archivo 3 no es válida.' });
+      }
+
+      try {
+        const { rows } = await pool.query(
+          'UPDATE app_options ' +
+          'SET file3_name = $1, file3_mime_type = $2, file3_size = $3, file3_data = $4, ' +
+          'file3_route = CASE WHEN $5::BOOLEAN THEN $6::TEXT ELSE file3_route END, ' +
+          'updated_at = NOW() WHERE id = $7 ' +
+          'RETURNING file3_name, file3_mime_type, file3_size, file3_route, updated_at',
+          [fileName, mimeType, buffer.length, buffer, routeHeader !== undefined, route, id]
+        );
+        if (!rows.length) return res.status(404).json({ ok: false, error: 'Option not found' });
+        const row = rows[0];
+        return res.json({
+          ok: true,
+          id,
+          file3Name: row.file3_name,
+          file3MimeType: row.file3_mime_type,
+          file3Size: Number(row.file3_size),
+          file3Route: row.file3_route || '',
+          updatedAt: row.updated_at,
+          sha256: crypto.createHash('sha256').update(buffer).digest('hex')
+        });
+      } catch (error) {
+        console.error('Upload third option file error:', error);
+        return res.status(500).json({ ok: false, error: 'Database error' });
+      }
+    }
+  );
+
+  app.delete('/api/admin/options/:id/file3', requireAdmin, async (req, res) => {
+    const id = normalizeId(req.params.id);
+    if (!id) return res.status(400).json({ ok: false, error: 'Invalid option id' });
+    try {
+      const { rows } = await pool.query(
+        'UPDATE app_options ' +
+        'SET file3_name = NULL, file3_mime_type = NULL, file3_size = 0, file3_data = NULL, ' +
+        'updated_at = NOW() WHERE id = $1 RETURNING id',
+        [id]
+      );
+      if (!rows.length) return res.status(404).json({ ok: false, error: 'Option not found' });
+      return res.json({ ok: true, id, slot: 3 });
+    } catch (error) {
+      console.error('Delete third option file error:', error);
+      return res.status(500).json({ ok: false, error: 'Database error' });
     }
   });
 
@@ -473,9 +608,13 @@ function registerTwoFileOptionRoutes({
               file2_name,
               file2_size,
               file2_route,
+              file3_name,
+              file3_size,
+              file3_route,
               updated_at,
               (file_data IS NOT NULL) AS has_file,
-              (file2_data IS NOT NULL) AS has_file2
+              (file2_data IS NOT NULL) AS has_file2,
+              (file3_data IS NOT NULL) AS has_file3
             FROM app_options
             WHERE game = $1
               AND enabled = TRUE
@@ -526,6 +665,16 @@ function registerTwoFileOptionRoutes({
               });
             }
 
+            if (row.has_file3) {
+              files.push({
+                slot: 3,
+                fileName: row.file3_name,
+                route: row.file3_route || row.route,
+                fileSize: Number(row.file3_size || 0),
+                fileUrl: baseUrl + '/api/app/options/' + id + '/file3'
+              });
+            }
+
             return {
               id,
               name: row.name,
@@ -564,7 +713,7 @@ function registerTwoFileOptionRoutes({
         });
       } catch (error) {
         console.error(
-          'Public two-file app options error:',
+          'Public app options with optional files error:',
           error
         );
 
@@ -661,6 +810,28 @@ function registerTwoFileOptionRoutes({
       }
     }
   );
+
+  app.get('/api/app/options/:id/file3', async (req, res) => {
+    const id = normalizeId(req.params.id);
+    if (!id) return res.status(400).json({ ok: false, error: 'Invalid option id' });
+    try {
+      const { rows } = await pool.query(
+        'SELECT file3_name, file3_mime_type, file3_data FROM app_options ' +
+        'WHERE id = $1 AND enabled = TRUE LIMIT 1',
+        [id]
+      );
+      const row = rows[0];
+      if (!row?.file3_data) return res.status(404).json({ ok: false, error: 'File not found' });
+      res.setHeader('Content-Type', normalizeFileMime(row.file3_mime_type));
+      res.setHeader('Content-Length', String(row.file3_data.length));
+      res.setHeader('Content-Disposition', 'attachment; filename="' +
+        (normalizeThirdFileName(row.file3_name) || 'file3.bin') + '"');
+      return res.send(row.file3_data);
+    } catch (error) {
+      console.error('Download third option file error:', error);
+      return res.status(500).json({ ok: false, error: 'Database error' });
+    }
+  });
 
   return {
     ensureTable

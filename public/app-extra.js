@@ -1,7 +1,7 @@
 /*
  * XITFORGE - EXTENSION DEL PANEL
  *
- * - Dos archivos por opción.
+ * - Hasta tres archivos por opción.
  * - Reglas de BORRAR al DESACTIVAR con:
  *   * Free Fire Normal / Free Fire MAX / AMBOS
  *   * selección múltiple de opciones
@@ -16,64 +16,68 @@
   const sortLabel = document.querySelector('label[for="optionSortOrder"]');
 
   if (!sortLabel) {
-    console.error('XITFORGE two-file addon: optionSortOrder label not found.');
+    console.error('XITFORGE option files: optionSortOrder label not found.');
     return;
   }
 
-  const secondFileLabel = document.createElement('label');
-  secondFileLabel.htmlFor = 'optionFile2';
-  secondFileLabel.textContent = 'Archivo 2 para ACTIVAR (opcional)';
+  const optionalSlots = [2, 3].map(slot => {
+    const file = document.createElement('input');
+    file.id = `optionFile${slot}`;
+    file.type = 'file';
+    const fileLabel = document.createElement('label');
+    fileLabel.htmlFor = file.id;
+    fileLabel.textContent = `Archivo ${slot} para ACTIVAR (opcional)`;
+    const fileHelp = document.createElement('p');
+    fileHelp.className = 'fieldHelp';
+    fileHelp.textContent = 'Puedes dejarlo vacío. Máximo 32 MB.';
 
-  const secondFileInput = document.createElement('input');
-  secondFileInput.id = 'optionFile2';
-  secondFileInput.type = 'file';
+    const route = document.createElement('input');
+    route.id = `optionFile${slot}Route`;
+    route.type = 'text';
+    route.maxLength = 4096;
+    route.placeholder = 'Ejemplo: Documents/record';
+    const routeLabel = document.createElement('label');
+    routeLabel.htmlFor = route.id;
+    routeLabel.textContent = `Ruta del archivo ${slot} (opcional)`;
+    const routeHelp = document.createElement('p');
+    routeHelp.className = 'fieldHelp';
+    routeHelp.textContent = 'Carpeta relativa dentro del contenedor del juego. Si la dejas vacía, se usará la ruta del archivo 1.';
 
-  const secondFileHelp = document.createElement('p');
-  secondFileHelp.className = 'fieldHelp';
-  secondFileHelp.textContent =
-    'Puedes dejarlo vacío. Si lo eliges, ACTIVAR tendrá dos archivos. Máximo 32 MB.';
+    for (const element of [fileLabel, file, fileHelp, routeLabel, route, routeHelp]) {
+      sortLabel.parentNode.insertBefore(element, sortLabel);
+    }
+    return { slot, file, route };
+  });
 
-  sortLabel.parentNode.insertBefore(secondFileLabel, sortLabel);
-  sortLabel.parentNode.insertBefore(secondFileInput, sortLabel);
-  sortLabel.parentNode.insertBefore(secondFileHelp, sortLabel);
-
-  const optionFile2 = secondFileInput;
-
-  const route2Label = document.createElement('label');
-  route2Label.htmlFor = 'optionFile2Route';
-  route2Label.textContent = 'Ruta del archivo 2 (opcional)';
-  const optionFile2Route = document.createElement('input');
-  optionFile2Route.id = 'optionFile2Route';
-  optionFile2Route.type = 'text';
-  optionFile2Route.maxLength = 4096;
-  optionFile2Route.placeholder = 'Ejemplo: Documents/record';
-  const route2Help = document.createElement('p');
-  route2Help.className = 'fieldHelp';
-  route2Help.textContent = 'Carpeta relativa dentro del contenedor del juego. Si la dejas vacía, se usará la ruta del archivo 1.';
-  for (const element of [route2Label, optionFile2Route, route2Help]) {
-    sortLabel.parentNode.insertBefore(element, sortLabel);
+  function optionFileEndpoint(id, slot) {
+    const resource = slot === 1 ? 'file' : `file${slot}`;
+    return `/api/admin/options/${id}/${resource}`;
   }
 
-  async function uploadOptionFileSlot(id, file, slot) {
-    if (!file) return;
-
-    if (file.size > 32 * 1024 * 1024) {
-      throw new Error(`${file.name} supera 32 MB.`);
+  function optionalRoute(value, slot) {
+    const trimmed = value.trim();
+    const route = trimmed.replace(/\/+$/, '');
+    if (trimmed && (!route || route.length > 4096 ||
+        /^[\/]|[\\:\x00-\x1f\x7f]/.test(route) ||
+        route.split('/').some(part => !part || part === '.' || part === '..'))) {
+      throw new Error(`La ruta del archivo ${slot} debe ser relativa, sin puntos ni carpetas vacías.`);
     }
+    return route;
+  }
 
-    const endpoint =
-      Number(slot) === 2
-        ? `/api/admin/options/${id}/file2`
-        : `/api/admin/options/${id}/file`;
-
-    const response = await fetch(endpoint, {
+  async function uploadOptionFileSlot(id, file, slot, route) {
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/octet-stream',
+      'X-File-Name': file.name,
+      'X-File-Mime': file.type || 'application/octet-stream'
+    };
+    if (route !== undefined) {
+      headers['X-File-Route'] = encodeURIComponent(route);
+    }
+    const response = await fetch(optionFileEndpoint(id, slot), {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/octet-stream',
-        'X-File-Name': file.name,
-        'X-File-Mime': file.type || 'application/octet-stream'
-      },
+      headers,
       body: file
     });
 
@@ -110,11 +114,19 @@
 
       try {
         const id = optionId.value.trim();
-        const file2Route = optionFile2Route.value.trim().replace(/\/+$/, '');
-        if (optionFile2Route.value.trim() && (!file2Route ||
-            /^[\/]|[\\:\x00-\x1f\x7f]/.test(file2Route) ||
-            file2Route.split('/').some(part => !part || part === '.' || part === '..'))) {
-          throw new Error('La ruta del archivo 2 debe ser relativa, sin puntos ni carpetas vacías.');
+        const firstFile = optionFile.files[0] || null;
+        const optionalFiles = optionalSlots.map(({ slot, file, route }) => ({
+          slot,
+          file: file.files[0] || null,
+          route: optionalRoute(route.value, slot)
+        }));
+        for (const file of [firstFile, ...optionalFiles.map(item => item.file)]) {
+          if (file && file.size > 32 * 1024 * 1024) {
+            throw new Error(`${file.name} supera 32 MB.`);
+          }
+          if (file && file.size === 0) {
+            throw new Error(`${file.name} está vacío.`);
+          }
         }
 
         const payload = {
@@ -149,20 +161,22 @@
         }
 
         optionId.value = targetId;
-        await api(`/api/admin/options/${targetId}/file2-route`, {
-          method: 'PUT',
-          body: JSON.stringify({ file2Route })
-        });
-
-        const firstFile = optionFile.files[0] || null;
-        const secondFile = optionFile2.files[0] || null;
-
         if (firstFile) {
           await uploadOptionFileSlot(targetId, firstFile, 1);
         }
 
-        if (secondFile) {
-          await uploadOptionFileSlot(targetId, secondFile, 2);
+        for (const { slot, file, route } of optionalFiles) {
+          if (slot === 3 && file) {
+            await uploadOptionFileSlot(targetId, file, slot, route);
+            continue;
+          }
+          await api(`${optionFileEndpoint(targetId, slot)}-route`, {
+            method: 'PUT',
+            body: JSON.stringify({ [`file${slot}Route`]: route })
+          });
+          if (file) {
+            await uploadOptionFileSlot(targetId, file, slot);
+          }
         }
 
         closeOptionForm();
@@ -183,16 +197,20 @@
 
   openOptionForm = function (option = null) {
     originalOpenOptionForm(option);
-    optionFile2.value = '';
-    optionFile2Route.value = option?.file2Route || '';
+    for (const { slot, file, route } of optionalSlots) {
+      file.value = '';
+      route.value = option?.[`file${slot}Route`] || '';
+    }
   };
 
   const originalCloseOptionForm = closeOptionForm;
 
   closeOptionForm = function () {
     originalCloseOptionForm();
-    optionFile2.value = '';
-    optionFile2Route.value = '';
+    for (const { file, route } of optionalSlots) {
+      file.value = '';
+      route.value = '';
+    }
   };
 
   renderOptions = function () {
@@ -276,6 +294,14 @@
                 <strong>Ruta del archivo 2:</strong>
                 <code>${escapeHtml(option.file2Route || option.route)}</code>
               </span>
+              ${option.hasFile3 ? `
+                <span><strong>ARCHIVO 3:</strong>
+                  ${escapeHtml(option.file3Name || 'Archivo modificado')}
+                </span>
+                <span><strong>Ruta del archivo 3:</strong>
+                  <code>${escapeHtml(option.file3Route || option.route)}</code>
+                </span>
+              ` : ''}
             </div>
 
             <div class="optionActions">
@@ -315,6 +341,12 @@
                   : ''
               }
 
+              ${option.hasFile3 ? `
+                <button class="small danger" data-option-action="delete-file3" data-id="${option.id}">
+                  Eliminar archivo 3
+                </button>
+              ` : ''}
+
               <button class="small danger" data-option-action="delete" data-id="${option.id}">
                 Eliminar opción
               </button>
@@ -344,18 +376,13 @@
 
     if (!option) return;
 
-    if (
-      action !== 'delete-file1' &&
-      action !== 'delete-file2'
-    ) {
+    const fileAction = /^delete-file([123])$/.exec(action);
+    if (!fileAction) {
       return originalHandleOptionAction(event);
     }
 
-    const slot = action === 'delete-file2' ? 2 : 1;
-    const fileName =
-      slot === 2
-        ? option.file2Name
-        : option.fileName;
+    const slot = Number(fileAction[1]);
+    const fileName = slot === 1 ? option.fileName : option[`file${slot}Name`];
 
     const confirmed = confirm(
       `¿Eliminar solamente el archivo ${slot} "${fileName || 'Sin nombre'}"?\n\n` +
@@ -367,12 +394,7 @@
     button.disabled = true;
 
     try {
-      const endpoint =
-        slot === 2
-          ? `/api/admin/options/${id}/file2`
-          : `/api/admin/options/${id}/file`;
-
-      await api(endpoint, { method: 'DELETE' });
+      await api(optionFileEndpoint(id, slot), { method: 'DELETE' });
       showToast(`Archivo ${slot} eliminado`);
       await loadOptions();
 
