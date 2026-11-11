@@ -213,6 +213,33 @@
     }
   };
 
+  const optionGroupStyles = document.createElement('style');
+  optionGroupStyles.textContent = `
+    #optionsWrap .xfOptionGroup {
+      margin-top: 20px;
+    }
+
+    #optionsWrap .xfOptionGroup + .xfOptionGroup {
+      padding-top: 20px;
+      border-top: 1px solid #252525;
+    }
+
+    #optionsWrap .xfOptionGroupTitle {
+      margin: 0 0 12px;
+      font-size: 16px;
+    }
+
+    #optionsWrap .xfOptionGroupEmpty,
+    #optionsWrap .optionTitleRow h4 {
+      margin: 0;
+    }
+
+    #optionsWrap .optionTitleRow h4 {
+      font-size: 17px;
+    }
+  `;
+  document.head.appendChild(optionGroupStyles);
+
   renderOptions = function () {
     const filter = optionsGameFilter.value;
     let items = optionsCache;
@@ -232,15 +259,13 @@
       return;
     }
 
-    optionsWrap.innerHTML = items
-      .map(
-        option => `
+    const renderOptionCard = option => `
           <article class="optionCard ${option.enabled ? '' : 'optionDisabled'}">
             <div class="optionMain">
               <div class="optionIcon">⚙</div>
               <div class="optionText">
                 <div class="optionTitleRow">
-                  <h3>${escapeHtml(option.name)}</h3>
+                  <h4>${escapeHtml(option.name)}</h4>
                   ${
                     option.enabled
                       ? '<span class="badge active">ACTIVA</span>'
@@ -352,9 +377,33 @@
               </button>
             </div>
           </article>
-        `
-      )
-      .join('');
+        `;
+
+    const groups = [
+      {
+        id: 'xfOptionsActive',
+        title: 'Opciones activas',
+        empty: 'No hay opciones activas.',
+        options: items.filter(option => option.enabled)
+      },
+      {
+        id: 'xfOptionsInactive',
+        title: 'Opciones desactivadas',
+        empty: 'No hay opciones desactivadas.',
+        options: items.filter(option => !option.enabled)
+      }
+    ];
+
+    optionsWrap.innerHTML = groups.map(group => `
+      <section class="xfOptionGroup" aria-labelledby="${group.id}">
+        <h3 class="xfOptionGroupTitle" id="${group.id}">
+          ${group.title} <span class="muted">(${group.options.length})</span>
+        </h3>
+        ${group.options.length
+          ? group.options.map(renderOptionCard).join('')
+          : `<p class="muted xfOptionGroupEmpty">${group.empty}</p>`}
+      </section>
+    `).join('');
 
     optionsWrap
       .querySelectorAll('button[data-option-action]')
