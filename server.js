@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
 const { createLicenseAuth } = require('./license-auth');
+const { createProxyAuth } = require('./proxy-auth');
 const { registerOptionSecurityRoutes } = require('./option-security-routes');
 const { createOriginalsCleanupAuth } = require('./originals-cleanup-auth');
 const { registerOptionsRoutes } = require('./options-routes');
@@ -70,6 +71,7 @@ const pool = new Pool({
 
 // Session tokens are random, stored only as SHA-256 in PostgreSQL.
 const licenseAuth = createLicenseAuth(pool);
+const proxyAuth = createProxyAuth(pool, { introspectionSecret: process.env.XF_PROXY_INTROSPECTION_SECRET });
 
 /*
  * ---------------------------------------------------------
@@ -1576,6 +1578,9 @@ app.post('/api/license/cleanup-token', rateLimit({ windowMs: 60_000, max: 12 }),
     }
   });
 
+app.post('/api/proxy/session', proxyAuth.prepare, rateLimit({ windowMs: 60_000, max: 120 }), proxyAuth.issue);
+app.post('/api/proxy/introspect', proxyAuth.prepare, proxyAuth.introspect);
+
 /*
  * ---------------------------------------------------------
  * ADMIN LOGIN
@@ -1895,11 +1900,13 @@ app.post(
       const result =
         await pool.query(
           `
-            UPDATE licenses
-            SET
-              status = 'revoked',
-              updated_at = $1
-            WHERE id = $2
+            WITH revoked AS (
+              UPDATE licenses SET status = 'revoked', updated_at = $1, proxy_generation = proxy_generation + 1
+              WHERE id = $2 RETURNING id
+            ), invalidated AS (
+              DELETE FROM xf_proxy_grants WHERE license_id IN (SELECT id FROM revoked)
+            )
+            SELECT id FROM revoked
           `,
           [
             nowIso(),
@@ -2935,6 +2942,8 @@ async function startServer() {
     await initializeDatabase();
     await freeKeysModule.ensureTables();
     await licenseAuth.ensureTable();
+    await proxyAuth.ensureTable();
+    proxyAuth.startCleanup();
 
     /*
      * Esperar también a que la tabla
